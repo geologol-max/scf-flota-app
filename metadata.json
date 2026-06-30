@@ -1,0 +1,6 @@
+{
+  "name": "Sistema de Control de Flota",
+  "description": "Plataforma de administración de flota de vehículos con monitoreo GPS, control documental, bitácoras de mantenimiento, gestión de seguridad y reportes automatizados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

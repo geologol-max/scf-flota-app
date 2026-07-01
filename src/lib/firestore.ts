@@ -26,6 +26,7 @@ import type {
   Incident,
   UserRole,
   SupervisorFleetLog,
+  WorkshopLog,
 } from '../types';
 
 // ─── Nombres de colecciones ────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export const COLLECTIONS = {
   INCIDENTS: 'incidents',
   USERS: 'users',
   SUPERVISOR_LOGS: 'supervisorLogs',
+  WORKSHOP_LOGS: 'workshopLogs',
 } as const;
 
 // ─── Helper genérico ────────────────────────────────────────────────────────────
@@ -166,3 +168,17 @@ export async function addSupervisorLog(log: Omit<SupervisorFleetLog, 'id'>): Pro
 export async function updateSupervisorLog(id: string, data: Partial<SupervisorFleetLog>): Promise<void> {
   await updateDoc(doc(db, COLLECTIONS.SUPERVISOR_LOGS, id), data);
 }
+
+// ─── WORKSHOP LOGS ─────────────────────────────────────────────────────────────
+export function subscribeToWorkshopLogs(cb: (logs: WorkshopLog[]) => void): Unsubscribe {
+  return subscribeToCollection<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS, cb);
+}
+
+export async function addWorkshopLog(log: Omit<WorkshopLog, 'id'>): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTIONS.WORKSHOP_LOGS), {
+    ...log,
+    _createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+

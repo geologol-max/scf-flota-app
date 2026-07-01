@@ -258,7 +258,7 @@ export default function MovementsTab({
                 <th className="py-3 px-4">Código Folio</th>
                 <th className="py-3 px-4">Unidad PPU</th>
                 <th className="py-3 px-4 text-center">Tipo Registro</th>
-                <th className="py-3 px-4 text-center">Fecha Mudanza</th>
+                <th className="py-3 px-4 text-center">Fecha de cambio</th>
                 <th className="py-3 px-4">Contrato Origen</th>
                 <th className="py-3 px-4">Contrato Destino</th>
                 <th className="py-3 px-4">Operador Responsable</th>

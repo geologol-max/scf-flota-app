@@ -8,7 +8,8 @@ import {
   UserRole,
   UserPermissions,
   CONTRATO_CENTRO_COSTO,
-  SupervisorFleetLog
+  SupervisorFleetLog,
+  WorkshopLog
 } from './types';
 import {
   subscribeToVehicles,
@@ -17,16 +18,23 @@ import {
   subscribeToIncidents,
   subscribeToUsers,
   subscribeToSupervisorLogs,
+  subscribeToWorkshopLogs,
   updateVehicle,
   updateMaintenanceLog,
   updateMovementLog,
   updateIncident,
   updateUser,
   updateSupervisorLog,
+  addVehicle,
+  addMaintenanceLog,
+  addMovementLog,
+  addIncident,
+  addUser,
+  addSupervisorLog,
+  addWorkshopLog
 } from './lib/firestore';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
-import FleetMap from './components/FleetMap';
 import VehicleInventory from './components/VehicleInventory';
 import MaintenanceTab from './components/MaintenanceTab';
 import MovementsTab from './components/MovementsTab';
@@ -34,6 +42,7 @@ import IncidentsTab from './components/IncidentsTab';
 import PermissionsManager from './components/PermissionsManager';
 import PredictiveAnalytics from './components/PredictiveAnalytics';
 import SupervisorsTab from './components/SupervisorsTab';
+import WorkshopTab from './components/WorkshopTab';
 import { exportToExcel, triggerPDFPrint } from './utils/exporters';
 
 import {
@@ -56,7 +65,10 @@ import {
   Menu,
   ChevronRight,
   Sparkles,
-  Fuel
+  Fuel,
+  Lock,
+  CheckCircle,
+  ClipboardCheck
 } from 'lucide-react';
 
 export default function App() {
@@ -70,6 +82,7 @@ export default function App() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [users, setUsers] = useState<UserRole[]>([]);
   const [supervisorLogs, setSupervisorLogs] = useState<SupervisorFleetLog[]>([]);
+  const [workshopLogs, setWorkshopLogs] = useState<WorkshopLog[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
@@ -85,7 +98,7 @@ export default function App() {
     if (!user) return;
 
     let resolved = 0;
-    const total = 6;
+    const total = 7;
     const checkDone = () => { resolved++; if (resolved >= total) setDataLoading(false); };
 
     const unsubVehicles = subscribeToVehicles((data) => { setVehicles(data); checkDone(); });
@@ -119,6 +132,7 @@ export default function App() {
       checkDone();
     });
     const unsubSup = subscribeToSupervisorLogs((data) => { setSupervisorLogs(data); checkDone(); });
+    const unsubWorkshop = subscribeToWorkshopLogs((data) => { setWorkshopLogs(data); checkDone(); });
 
     return () => {
       unsubVehicles();
@@ -127,6 +141,7 @@ export default function App() {
       unsubInc();
       unsubUsers();
       unsubSup();
+      unsubWorkshop();
     };
   }, [user]);
 
@@ -145,21 +160,109 @@ export default function App() {
     setCurrentSimulatedUser(u);
   };
 
+  // ─── Sincronización robusta con Firestore ────────────────────────────────────
+  const handleUpdateVehicles = async (updated: Vehicle[]) => {
+    setVehicles(updated);
+    for (const newV of updated) {
+      const oldV = vehicles.find(v => v.ppu === newV.ppu);
+      if (oldV) {
+        if (JSON.stringify(oldV) !== JSON.stringify(newV)) {
+          const docId = (oldV as any).id;
+          if (docId) {
+            const { id, ...dataToUpdate } = newV as any;
+            await updateVehicle(docId, dataToUpdate);
+          }
+        }
+      } else {
+        await addVehicle(newV);
+      }
+    }
+    for (const oldV of vehicles) {
+      if (!updated.some(v => v.ppu === oldV.ppu)) {
+        const docId = (oldV as any).id;
+        if (docId) {
+          await deleteVehicle(docId);
+        }
+      }
+    }
+  };
+
+  const handleUpdateMaintenanceLogs = async (updated: MaintenanceLog[]) => {
+    setMaintenanceLogs(updated);
+    const added = updated.find(log => !maintenanceLogs.some(old => old.id === log.id));
+    if (added) {
+      const { id, ...data } = added as any;
+      await addMaintenanceLog(data);
+    }
+  };
+
+  const handleUpdateMovements = async (updated: FleetMovementLog[]) => {
+    setMovementLogs(updated);
+    const added = updated.find(m => !movementLogs.some(old => old.id === m.id));
+    if (added) {
+      const { id, ...data } = added as any;
+      await addMovementLog(data);
+    }
+  };
+
+  const handleUpdateIncidents = async (updated: Incident[]) => {
+    setIncidents(updated);
+    const added = updated.find(inc => !incidents.some(old => old.id === inc.id));
+    if (added) {
+      const { id, ...data } = added as any;
+      await addIncident(data);
+    } else {
+      for (const newI of updated) {
+        const oldI = incidents.find(i => i.id === newI.id);
+        if (oldI && JSON.stringify(oldI) !== JSON.stringify(newI)) {
+          const docId = (oldI as any).id;
+          if (docId) {
+            const { id, ...dataToUpdate } = newI as any;
+            await updateIncident(docId, dataToUpdate);
+          }
+        }
+      }
+    }
+  };
+
+  const handleUpdateUsers = async (updated: UserRole[]) => {
+    setUsers(updated);
+    const added = updated.find(u => !users.some(old => old.email === u.email));
+    if (added) {
+      const { id, ...data } = added as any;
+      await addUser(data);
+    } else {
+      for (const newU of updated) {
+        const oldU = users.find(u => u.id === newU.id);
+        if (oldU && JSON.stringify(oldU) !== JSON.stringify(newU)) {
+          const docId = (oldU as any).id;
+          if (docId) {
+            const { id, ...dataToUpdate } = newU as any;
+            await updateUser(docId, dataToUpdate);
+          }
+        }
+      }
+    }
+  };
+
+  const handleAddSupervisorLog = async (newLog: Omit<SupervisorFleetLog, 'id'>) => {
+    await addSupervisorLog(newLog);
+  };
+
+  const handleAddWorkshopLog = async (newLog: Omit<WorkshopLog, 'id'>) => {
+    await addWorkshopLog(newLog);
+  };
+
   // Simulating live telemetry tick on map vehicles (speeds fluctuate gently to show real-time changes)
   useEffect(() => {
     const ticker = setInterval(() => {
       setVehicles(prev => {
         return prev.map(v => {
           if (v.estado === 'Operativo' && v.velocidad > 0) {
-            // Modulate speed slightly
             const nextSpeed = Math.max(30, Math.min(120, v.velocidad + (Math.random() > 0.5 ? 4 : -4)));
-            // Move longitude slightly east-west to show animation on map
-            const nextLng = v.coords.lng + (Math.random() - 0.5) * 0.0003;
-            // Map bounds protection
             return {
               ...v,
-              velocidad: nextSpeed,
-              coords: { ...v.coords, lng: nextLng }
+              velocidad: nextSpeed
             };
           }
           return v;
@@ -259,12 +362,12 @@ export default function App() {
         <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-slate-400" />
-            <span className="font-semibold text-slate-200">Simulador de Acceso Administrativo</span>
+            <span className="font-semibold text-slate-200">Acceso Administrativo</span>
             <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded font-mono uppercase">ISO-27001 Ready</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-400">Verificar vista como:</span>
+            <span className="text-slate-400">Cambiar perfil:</span>
             <div className="flex gap-1 overflow-x-auto p-0.5 bg-slate-950 rounded-lg border border-slate-800">
               {users.map(u => (
                 <button
@@ -283,7 +386,7 @@ export default function App() {
             </div>
             <div className="h-4 w-px bg-slate-800 hidden md:block" />
             <span className="italic text-slate-450 text-[11px] hidden md:inline">
-              Simulado: <strong className="text-indigo-400">{currentSimulatedUser.nombre}</strong>
+              Perfil actual: <strong className="text-indigo-400">{currentSimulatedUser.nombre}</strong>
             </span>
           </div>
         </div>
@@ -321,21 +424,6 @@ export default function App() {
               <span>Tablero Control</span>
             </button>
 
-            {currentSimulatedUser.permisos.ver_mapas && (
-              <button
-                onClick={() => setActiveTab('mapa')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === 'mapa'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-                id="tab-mapa"
-              >
-                <MapPin className="w-4 h-4 shrink-0" />
-                <span>Monitoreo GPS</span>
-              </button>
-            )}
-
             {currentSimulatedUser.permisos.ver_flota && (
               <button
                 onClick={() => setActiveTab('inventario')}
@@ -354,18 +442,46 @@ export default function App() {
             <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold px-3 pt-6 mb-2 font-mono">Gestión logista</div>
 
             {currentSimulatedUser.permisos.mantenimientos && (
-              <button
-                onClick={() => setActiveTab('mantenimientos')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === 'mantenimientos'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-                id="tab-mantenimientos"
-              >
-                <Wrench className="w-4 h-4 shrink-0" />
-                <span>Órdenes de Taller</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setActiveTab('mantenimientos')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'mantenimientos'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  id="tab-mantenimientos"
+                >
+                  <Wrench className="w-4 h-4 shrink-0" />
+                  <span>Órdenes de Taller</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('recepcion_taller')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'recepcion_taller'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  id="tab-recepcion-taller"
+                >
+                  <ClipboardCheck className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>Recepción de Taller</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('salida_taller')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'salida_taller'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  id="tab-salida-taller"
+                >
+                  <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>Salida de Taller</span>
+                </button>
+              </>
             )}
 
             {currentSimulatedUser.permisos.movimientos_flota && (
@@ -559,52 +675,6 @@ export default function App() {
                         <div className="text-2xl font-extrabold font-mono text-rose-600 mt-1">{incidentCount}</div>
                         <span className="text-[10px] text-slate-500 mt-2 block">Seguro en curso</span>
                       </div>
-
-                    </div>
-
-                    {/* Integrated Satellite Monitoring Preview */}
-                    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-left space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <Radio className="w-5 h-5 text-indigo-600 animate-pulse" />
-                          <h3 className="font-bold text-slate-900 text-sm">Monitoreo GPS en Tiempo Real</h3>
-                        </div>
-                        {currentSimulatedUser.permisos.ver_mapas && (
-                          <button
-                            onClick={() => setActiveTab('mapa')}
-                            className="text-xs text-indigo-600 font-extrabold hover:underline flex items-center"
-                          >
-                            Consola Satelital Completa <ChevronRight className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <p className="text-xs text-slate-500">
-                        Visualización instantánea de los activos logísticos circulando en las autopistas Costanera Norte, Ruta 5 Sur y Américo Vespucio Oriente. Las velocidades se actualizan proactivamente cada 4 segundos.
-                      </p>
-
-                      {/* Map miniaturized mock */}
-                      <div className="h-44 bg-slate-950 rounded-xl relative border border-slate-900 overflow-hidden flex items-center justify-center">
-                        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:25px_25px]" />
-                        <span className="text-xs text-slate-500 uppercase tracking-widest font-mono font-bold z-10 animate-pulse">
-                          PRE-VISUALIZACIÓN CENTRAL SATELITAL
-                        </span>
-                        
-                        {/* Dot elements representing active GPS feeds */}
-                        {vehicles.slice(0, 4).map((v, i) => (
-                          <div 
-                            key={v.ppu} 
-                            style={{ top: `${30 + i * 15}%`, left: `${15 + i * 22}%` }} 
-                            className="absolute flex items-center gap-1.5"
-                          >
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping absolute" />
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-slate-900 relative block" />
-                            <span className="bg-slate-900/90 text-[8px] font-mono border border-slate-800 text-slate-300 px-1 rounded block">
-                              {v.codigo_unico} ({v.ppu})
-                            </span>
-                          </div>
-                        ))}
-                      </div>
                     </div>
 
                     {/* Quick audits download triggers block */}
@@ -748,20 +818,11 @@ export default function App() {
               </div>
             )}
 
-            {/* ROUTE 2: Interactive Monitor GPS Map view */}
-            {activeTab === 'mapa' && currentSimulatedUser.permisos.ver_mapas && (
-              <FleetMap
-                vehicles={vehicles}
-                onSelectVehicle={(v) => setSelectedVehicleOnMap(v)}
-                selectedVehicle={selectedVehicleOnMap}
-              />
-            )}
-
             {/* ROUTE 3: Vehicle inventory ledgers */}
             {activeTab === 'inventario' && currentSimulatedUser.permisos.ver_flota && (
               <VehicleInventory
                 vehicles={vehicles}
-                onUpdateVehicles={(updated) => setVehicles(updated)}
+                onUpdateVehicles={handleUpdateVehicles}
                 permissions={currentSimulatedUser.permisos}
                 customCategories={customCategories}
                 onCreateCategory={(newCat) => setCustomCategories([...customCategories, newCat])}
@@ -770,24 +831,52 @@ export default function App() {
 
             {/* ROUTE 4: Maintenance Service Log */}
             {activeTab === 'mantenimientos' && currentSimulatedUser.permisos.mantenimientos && (
-              <WithPermission permission="mantenimientos">
+              <WithPermission permission="mantenimientos" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
                 <MaintenanceTab
                   logs={maintenanceLogs}
                   vehicles={vehicles}
-                  onUpdateLogs={(updated) => setMaintenanceLogs(updated)}
+                  onUpdateLogs={handleUpdateMaintenanceLogs}
                   permissions={currentSimulatedUser.permisos}
+                />
+              </WithPermission>
+            )}
+
+            {/* ROUTE Recepcion Taller */}
+            {activeTab === 'recepcion_taller' && currentSimulatedUser.permisos.mantenimientos && (
+              <WithPermission permission="mantenimientos" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
+                <WorkshopTab
+                  mode="recepcion"
+                  vehicles={vehicles}
+                  onUpdateVehicles={handleUpdateVehicles}
+                  logs={workshopLogs}
+                  onAddWorkshopLog={handleAddWorkshopLog}
+                  currentUser={currentSimulatedUser}
+                />
+              </WithPermission>
+            )}
+
+            {/* ROUTE Salida Taller */}
+            {activeTab === 'salida_taller' && currentSimulatedUser.permisos.mantenimientos && (
+              <WithPermission permission="mantenimientos" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
+                <WorkshopTab
+                  mode="salida"
+                  vehicles={vehicles}
+                  onUpdateVehicles={handleUpdateVehicles}
+                  logs={workshopLogs}
+                  onAddWorkshopLog={handleAddWorkshopLog}
+                  currentUser={currentSimulatedUser}
                 />
               </WithPermission>
             )}
 
             {/* ROUTE 5: Fleet Movements contracts bitacora */}
             {activeTab === 'movimientos' && currentSimulatedUser.permisos.movimientos_flota && (
-              <WithPermission permission="movimientos_flota">
+              <WithPermission permission="movimientos_flota" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
                 <MovementsTab
                   movements={movementLogs}
                   vehicles={vehicles}
-                  onUpdateMovements={(updated) => setMovementLogs(updated)}
-                  onUpdateVehicles={(updated) => setVehicles(updated)}
+                  onUpdateMovements={handleUpdateMovements}
+                  onUpdateVehicles={handleUpdateVehicles}
                   permissions={currentSimulatedUser.permisos}
                   currentSimulatedAdminUser={currentSimulatedUser.nombre}
                 />
@@ -796,12 +885,12 @@ export default function App() {
 
             {/* ROUTE 6: Log road accidents / incident register */}
             {activeTab === 'incidentes' && currentSimulatedUser.permisos.incidentes_siniestros && (
-              <WithPermission permission="incidentes_siniestros">
+              <WithPermission permission="incidentes_siniestros" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
                 <IncidentsTab
                   incidents={incidents}
                   vehicles={vehicles}
-                  onUpdateIncidents={(updated) => setIncidents(updated)}
-                  onUpdateVehicles={(updated) => setVehicles(updated)}
+                  onUpdateIncidents={handleUpdateIncidents}
+                  onUpdateVehicles={handleUpdateVehicles}
                   permissions={currentSimulatedUser.permisos}
                 />
               </WithPermission>
@@ -817,10 +906,10 @@ export default function App() {
 
             {/* ROUTE 8: Access matrix switch and creation */}
             {activeTab === 'usuarios' && currentSimulatedUser.permisos.gestionar_usuarios && (
-              <WithPermission permission="gestionar_usuarios">
+              <WithPermission permission="gestionar_usuarios" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
                 <PermissionsManager
                   users={users}
-                  onUpdateUsers={(updated) => setUsers(updated)}
+                  onUpdateUsers={handleUpdateUsers}
                   currentUserRole={currentSimulatedUser}
                   onSelectActiveSimulatedUser={handleSelectSimulatedUser}
                 />
@@ -829,11 +918,13 @@ export default function App() {
 
             {/* ROUTE 9: Gestión de Supervisores */}
             {activeTab === 'supervisores' && currentSimulatedUser.permisos.gestion_supervisores && (
-              <WithPermission permission="gestion_supervisores">
+              <WithPermission permission="gestion_supervisores" currentSimulatedUser={currentSimulatedUser} setActiveTab={setActiveTab}>
                 <SupervisorsTab
                   vehicles={vehicles}
-                  onUpdateVehicles={(updated) => setVehicles(updated)}
+                  onUpdateVehicles={handleUpdateVehicles}
                   currentUser={currentSimulatedUser}
+                  logs={supervisorLogs}
+                  onAddSupervisorLog={handleAddSupervisorLog}
                 />
               </WithPermission>
             )}
@@ -859,34 +950,44 @@ export default function App() {
 
     </div>
   );
+}
 
-  // Fallback visual helper block to warn if some user does not possess specific permission rendering
-  function WithPermission({ permission, children }: { permission: keyof UserPermissions; children: React.ReactElement }) {
-    const hasPerm = currentSimulatedUser.permisos[permission];
-    if (!hasPerm) {
-      return (
-        <div className="bg-white p-12 rounded-3xl border border-slate-100 text-center max-w-lg mx-auto my-12 shadow-sm space-y-4">
-          <div className="flex justify-center">
-            <div className="p-3 bg-rose-50 text-rose-500 rounded-full">
-              <Lock className="w-8 h-8" />
-            </div>
-          </div>
-          <h3 className="font-extrabold text-slate-900 text-base">Acceso Restringido</h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Su cuenta simulada actual (<strong className="text-slate-800">{currentSimulatedUser.nombre}</strong>) no tiene asignada la opción de <strong className="text-indigo-600">{String(permission).replace('_', ' ')}</strong> en la matriz de acceso limitada corporativa.
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 px-5 rounded-lg transition-all"
-            >
-              Volver al Tablero Principal
-            </button>
+// Fallback visual helper block to warn if some user does not possess specific permission rendering
+function WithPermission({
+  permission,
+  currentSimulatedUser,
+  setActiveTab,
+  children
+}: {
+  permission: keyof UserPermissions;
+  currentSimulatedUser: UserRole;
+  setActiveTab: (tab: string) => void;
+  children: React.ReactElement;
+}) {
+  const hasPerm = currentSimulatedUser.permisos[permission];
+  if (!hasPerm) {
+    return (
+      <div className="bg-white p-12 rounded-3xl border border-slate-100 text-center max-w-lg mx-auto my-12 shadow-sm space-y-4">
+        <div className="flex justify-center">
+          <div className="p-3 bg-rose-50 text-rose-500 rounded-full">
+            <Lock className="w-8 h-8" />
           </div>
         </div>
-      );
-    }
-    return children;
+        <h3 className="font-extrabold text-slate-900 text-base">Acceso Restringido</h3>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          Su cuenta actual (<strong className="text-slate-800">{currentSimulatedUser.nombre}</strong>) no tiene asignada la opción de <strong className="text-indigo-600">{String(permission).replace('_', ' ')}</strong> en la matriz de accesos.
+        </p>
+        <div className="pt-2">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 px-5 rounded-lg transition-all"
+          >
+            Volver al Tablero Principal
+          </button>
+        </div>
+      </div>
+    );
   }
+  return children;
 }
 

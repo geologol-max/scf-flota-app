@@ -164,3 +164,27 @@ export interface SupervisorFleetLog {
   supervisor_nombre: string;
   contrato: string;
 }
+
+export interface WorkshopChecklist {
+  luces: boolean;
+  neumaticos: boolean;
+  carroceria: boolean;
+  herramientas: boolean;
+  documentos: boolean;
+  limpieza?: boolean;
+  fluidos?: boolean;
+  prueba_ruta?: boolean;
+}
+
+export interface WorkshopLog {
+  id: string;
+  tipo: 'Ingreso' | 'Salida';
+  ppu: string;
+  codigo_vehiculo: string;
+  fecha: string;
+  odometro: number;
+  responsable: string;
+  checklist: WorkshopChecklist;
+  observaciones: string;
+}
+

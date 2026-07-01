@@ -24,63 +24,18 @@ interface SupervisorsTabProps {
   vehicles: Vehicle[];
   onUpdateVehicles: (updated: Vehicle[]) => void;
   currentUser: UserRole;
+  logs: SupervisorFleetLog[];
+  onAddSupervisorLog: (log: Omit<SupervisorFleetLog, 'id'>) => Promise<void>;
 }
 
 export default function SupervisorsTab({
   vehicles,
   onUpdateVehicles,
-  currentUser
+  currentUser,
+  logs,
+  onAddSupervisorLog
 }: SupervisorsTabProps) {
-  // Persistence state for supervisor logs
-  const [logs, setLogs] = useState<SupervisorFleetLog[]>(() => {
-    const saved = localStorage.getItem('supervisor_fleet_logs');
-    if (saved) return JSON.parse(saved);
-    // Initial mock log updates of past periods for realistic visualization
-    return [
-      {
-        id: 'SUP-001',
-        ppu: 'ABCD12',
-        fecha_actualizacion: '2026-06-15 11:30',
-        odometro: 120500,
-        combustible: {
-          fecha: '2026-06-15',
-          hora: '11:00',
-          proveedor: 'Copec',
-          litros: 45,
-          valor_combustible: 1120,
-          monto_total: 50400,
-          observaciones: 'Carga regular para ruta sur'
-        },
-        observaciones: 'Mantención realizada la semana pasada.',
-        periodoId: '2026-06-19',
-        supervisor_nombre: 'Eduardo Garrido',
-        contrato: 'AVO'
-      },
-      {
-        id: 'SUP-002',
-        ppu: 'HGTR45',
-        fecha_actualizacion: '2026-06-17 09:45',
-        odometro: 89400,
-        combustible: {
-          fecha: '2026-06-17',
-          hora: '09:30',
-          proveedor: 'Shell',
-          litros: 50,
-          valor_combustible: 1140,
-          monto_total: 57000,
-          observaciones: 'Carga estanque completo'
-        },
-        observaciones: 'Sin novedades mecánicas.',
-        periodoId: '2026-06-19',
-        supervisor_nombre: 'Carolina Méndez',
-        contrato: 'ISA MAIPO'
-      }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('supervisor_fleet_logs', JSON.stringify(logs));
-  }, [logs]);
+  // Logs and local storage persistence removed, using Firestore logs passed via props
 
   // Available contracts for dropdown filtering
   const allContracts = ['AVO', 'ISA MAIPO', 'RUTA DE LA FRUTA', 'NAHUELBUTA', 'CONG', 'PUENTE INDUSTRIAL', 'FEPASA', 'AUTOPISTA CENTRAL', 'AVN-TSC'];
@@ -362,8 +317,7 @@ export default function SupervisorsTab({
 
     // Capture exact updated date/time
     const timestampStr = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' }).slice(0, 16).replace(',', '');
-    const newLog: SupervisorFleetLog = {
-      id: `SUP-${Date.now().toString().slice(-6)}`,
+    const newLog: Omit<SupervisorFleetLog, 'id'> = {
       ppu: ppu,
       fecha_actualizacion: timestampStr,
       odometro: odometerNum,
@@ -374,9 +328,7 @@ export default function SupervisorsTab({
       contrato: selectedContract
     };
 
-    // Append to logs
-    const updatedLogs = [newLog, ...logs];
-    setLogs(updatedLogs);
+    onAddSupervisorLog(newLog);
 
     // Update main vehicle mileage state
     const updatedVehicles = vehicles.map(v => {
@@ -928,10 +880,11 @@ export default function SupervisorsTab({
                                 setHasFuel(false);
                               }
                             }}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold p-1.5 rounded-lg text-xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-2 px-3 rounded-lg text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-indigo-100"
                             id={`btn-expand-vehicle-${veh.ppu}`}
                           >
-                            <span>Ficha Reporte</span>
+                            <Fuel className="w-3.5 h-3.5" />
+                            <span>Registrar Odómetro/Combustible</span>
                             {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                           </button>
                         </td>

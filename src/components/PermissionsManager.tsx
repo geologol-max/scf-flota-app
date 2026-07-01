@@ -25,7 +25,7 @@ export default function PermissionsManager({
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUserRole.permisos.gestionar_usuarios) {
-      alert('Su cuenta simuladora actual NO cuenta con autorización para crear otros usuarios.');
+      alert('Su cuenta actual no cuenta con autorización para crear otros usuarios.');
       return;
     }
 
@@ -133,21 +133,21 @@ export default function PermissionsManager({
   return (
     <div className="space-y-6" id="permissions-manager-root">
       
-      {/* Simulation Banner Notice (extremely helpful to understand testing privileges) */}
+      {/* User Session Banner Notice */}
       <div className="bg-slate-900 text-slate-100 p-5 rounded-2xl border border-slate-700 text-left flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 font-mono">Consola de Simulación Activa</span>
+            <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 font-mono">Gestión de Perfiles y Accesos</span>
           </div>
-          <h4 className="font-bold text-sm">Pruebe las Restricciones de Permisos en Tiempo Real</h4>
+          <h4 className="font-bold text-sm">Administración de Permisos y Roles de Usuario</h4>
           <p className="text-xs text-slate-400">
-            Cambie su perfil simulado en la barra superior del sistema o elija una cuenta abajo. Con un solo click, los accesos a los paneles, descargas, subidas de SOAP o creación de vehículos se restringirán de inmediato.
+            Cambie de perfil en la barra superior del sistema o elija una cuenta abajo para pruebas y control de accesos. Los privilegios sobre los paneles, descargas, SOAP y vehículos se aplicarán de inmediato.
           </p>
         </div>
 
         <div className="text-right">
-          <span className="text-xs text-slate-400 block mb-1">Simulado Como:</span>
+          <span className="text-xs text-slate-400 block mb-1">Perfil Seleccionado:</span>
           <span className="bg-indigo-600 font-bold px-3 py-1.5 rounded-lg text-xs font-mono text-white inline-block">
             {currentUserRole.nombre} ({currentUserRole.rol})
           </span>
@@ -251,7 +251,7 @@ export default function PermissionsManager({
                         </span>
                         {worksAsSimul && (
                           <span className="text-[9px] bg-indigo-100 text-indigo-800 font-extrabold px-2 py-0.2 rounded-full">
-                            Cuenta Activa Simulada
+                            Cuenta Seleccionada
                           </span>
                         )}
                       </div>
@@ -267,7 +267,7 @@ export default function PermissionsManager({
                             : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'
                         }`}
                       >
-                        Simular esta Cuenta
+                        Activar este Perfil
                       </button>
 
                       <button

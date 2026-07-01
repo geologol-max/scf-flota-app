@@ -45,7 +45,7 @@ export default function PermissionsManager({
     setIsSubmitting(true);
     try {
       // 1. Obtener Token de ID del usuario actual de Firebase Auth
-      const token = await auth.currentUser?.getIdToken(true);
+      const token = await auth?.currentUser?.getIdToken(true);
       if (!token) {
         throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión nuevamente.');
       }
@@ -112,7 +112,7 @@ export default function PermissionsManager({
     if (!confirmDelete) return;
 
     try {
-      const token = await auth.currentUser?.getIdToken(true);
+      const token = await auth?.currentUser?.getIdToken(true);
       if (!token) {
         throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión.');
       }
@@ -367,7 +367,7 @@ export default function PermissionsManager({
                         {u.activo ? 'Activo' : 'Suspendido'}
                       </button>
 
-                      {u.email !== auth.currentUser?.email && (
+                      {u.email !== (auth?.currentUser?.email || '') && (
                         <button
                           onClick={() => handleDeleteUser(u.id, u.nombre)}
                           className="text-xs px-2.5 py-1.5 rounded-lg font-bold border border-rose-100 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-all cursor-pointer inline-flex items-center gap-1"

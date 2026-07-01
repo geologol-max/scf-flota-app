@@ -1,16 +1,18 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import admin from 'firebase-admin';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 // 1. Inicialización segura de Firebase Admin SDK
 const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
 const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
 const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'scf-flota';
 
-if (!admin.apps.length) {
+if (!getApps().length) {
   if (clientEmail && privateKey) {
     try {
-      admin.initializeApp({
-        credential: admin.credential.cert({
+      initializeApp({
+        credential: cert({
           projectId,
           clientEmail,
           privateKey: privateKey.replace(/\\n/g, '\n'),
@@ -32,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // 2. Validar que la cuenta de servicio esté configurada en el servidor
-  if (!admin.apps.length) {
+  if (!getApps().length) {
     return res.status(500).json({
       error: 'firebase-admin-not-configured',
       message: 'Las credenciales de Cuenta de Servicio (FIREBASE_ADMIN_CLIENT_EMAIL y FIREBASE_ADMIN_PRIVATE_KEY) no están configuradas en las variables de entorno de Vercel.',
@@ -63,8 +65,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const auth = getAuth();
+    const db = getFirestore();
+
     // 5. Verificar el token del administrador que llama a la API
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await auth.verifyIdToken(idToken);
     const callerEmail = decodedToken.email;
 
     if (!callerEmail) {
@@ -72,8 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 6. Consultar los permisos del llamador en Firestore
-    const usersSnap = await admin
-      .firestore()
+    const usersSnap = await db
       .collection('users')
       .where('email', '==', callerEmail.toLowerCase())
       .limit(1)
@@ -89,7 +93,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 7. Crear el usuario en Firebase Authentication
-    const newUserRecord = await admin.auth().createUser({
+    const newUserRecord = await auth.createUser({
       email: email.toLowerCase(),
       password: password,
       displayName: name,
@@ -117,8 +121,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     // 8. Crear el documento del perfil en Firestore (usando el mismo UID de Auth como ID del documento)
-    await admin
-      .firestore()
+    await db
       .collection('users')
       .doc(newUserRecord.uid)
       .set({
@@ -127,7 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rol: role,
         activo: true,
         permisos: defaultPermissions,
-        _createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        _createdAt: FieldValue.serverTimestamp(),
       });
 
     console.log(`Perfil creado en Firestore para ${name}`);
@@ -140,7 +143,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   } catch (err: any) {
     console.error('Error al registrar usuario:', err);
-    // Errores comunes de Firebase Auth
     if (err.code === 'auth/email-already-exists') {
       return res.status(400).json({ error: 'El correo electrónico ya se encuentra registrado.' });
     }

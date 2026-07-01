@@ -31,7 +31,8 @@ import {
   addIncident,
   addUser,
   addSupervisorLog,
-  addWorkshopLog
+  addWorkshopLog,
+  deleteVehicle
 } from './lib/firestore';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';

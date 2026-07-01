@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserRole, UserPermissions } from '../types';
 import { UserPlus, Shield, ShieldCheck, Mail, Lock, Unlock, CheckSquare, Square, Eye, EyeOff, Save } from 'lucide-react';
+import { auth } from '../lib/firebase';
 
 interface PermissionsManagerProps {
   users: UserRole[];
@@ -20,51 +21,81 @@ export default function PermissionsManager({
   // Form states to create new user
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [roleGroup, setRoleGroup] = useState<'Administrador' | 'Gestor' | 'Operador'>('Operador');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUserRole.permisos.gestionar_usuarios) {
       alert('Su cuenta actual no cuenta con autorización para crear otros usuarios.');
       return;
     }
 
-    if (!name || !email) {
+    if (!name || !email || !password) {
       alert('Por favor llene todos los campos requeridos.');
       return;
     }
 
-    // Default permission levels based on standard rules
-    const defaultPermissions: UserPermissions = {
-      ver_dashboard: true,
-      ver_mapas: true,
-      ver_flota: true,
-      editar_flota: roleGroup !== 'Operador',
-      ver_documentos: true,
-      cargar_documentos: roleGroup === 'Administrador' || roleGroup === 'Gestor',
-      descargar_documentos: roleGroup === 'Administrador' || roleGroup === 'Gestor',
-      movimientos_flota: true,
-      incidentes_siniestros: true,
-      mantenimientos: roleGroup !== 'Operador',
-      gestionar_usuarios: roleGroup === 'Administrador',
-      descargar_auditoria: roleGroup === 'Administrador' || roleGroup === 'Gestor',
-      carga_masiva: roleGroup === 'Administrador'
-    };
+    if (password.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
 
-    const newUser: UserRole = {
-      id: `USR-${Math.floor(Math.random() * 90 + 10)}`,
-      nombre: name,
-      email: email,
-      rol: roleGroup,
-      activo: true,
-      permisos: defaultPermissions
-    };
+    setIsSubmitting(true);
+    try {
+      // 1. Obtener Token de ID del usuario actual de Firebase Auth
+      const token = await auth.currentUser?.getIdToken(true);
+      if (!token) {
+        throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión nuevamente.');
+      }
 
-    onUpdateUsers([...users, newUser]);
-    setIsAdding(false);
-    setName('');
-    setEmail('');
-    alert(`Usuario ${name} creado con perfil de ${roleGroup} y salvado de forma segura.`);
+      // 2. Llamar a la API serverless de Vercel
+      const res = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          role: roleGroup
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === 'firebase-admin-not-configured') {
+          alert(
+            `⚠️ ERROR DE CONFIGURACIÓN DEL SERVIDOR:\n\n` +
+            `El backend de Vercel no tiene configuradas las variables de Cuenta de Servicio.\n\n` +
+            `Sigue estos pasos en Vercel:\n` +
+            `1. Ve a tu proyecto en Vercel > Settings > Environment Variables.\n` +
+            `2. Agrega la variable "FIREBASE_ADMIN_CLIENT_EMAIL" con tu correo de cuenta de servicio.\n` +
+            `3. Agrega la variable "FIREBASE_ADMIN_PRIVATE_KEY" con tu clave privada.\n\n` +
+            `El perfil de usuario NO ha sido creado en Firebase Authentication.`
+          );
+          return;
+        }
+        throw new Error(data.error || 'Error al procesar el registro en el servidor.');
+      }
+
+      // 3. Éxito: el backend ya creó el Auth y el documento en Firestore
+      alert(`¡Usuario ${name} creado con éxito en el sistema! Ya puede iniciar sesión.`);
+      
+      setIsAdding(false);
+      setName('');
+      setEmail('');
+      setPassword('');
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error al crear usuario: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Toggle single permission instantly with click!
@@ -181,7 +212,7 @@ export default function PermissionsManager({
             <form onSubmit={handleCreateUser} className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-5 space-y-3">
               <h5 className="font-bold text-xs text-slate-800">Registrar Nuevo Usuario Coordinador</h5>
               
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nombre Completo</label>
                   <input
@@ -202,6 +233,18 @@ export default function PermissionsManager({
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg"
                     placeholder="ejemplo@flota.cl"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Contraseña de Acceso</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg"
+                    placeholder="Mín. 6 caracteres"
+                    minLength={6}
                   />
                 </div>
                 <div>
@@ -228,9 +271,10 @@ export default function PermissionsManager({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg"
+                  disabled={isSubmitting}
+                  className="px-4 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-lg"
                 >
-                  Crear Cuenta
+                  {isSubmitting ? 'Creando...' : 'Crear Cuenta'}
                 </button>
               </div>
             </form>

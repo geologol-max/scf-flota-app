@@ -70,7 +70,8 @@ import {
   Lock,
   CheckCircle,
   ClipboardCheck,
-  Gauge
+  Gauge,
+  Search
 } from 'lucide-react';
 
 export default function App() {
@@ -94,6 +95,9 @@ export default function App() {
 
   // Current active logged user (first admin found, or first user)
   const [currentSimulatedUser, setCurrentSimulatedUser] = useState<UserRole | null>(null);
+
+  // Rapid PPU lookup search state
+  const [searchPpu, setSearchPpu] = useState('');
 
   // ── Suscripciones Firestore (solo cuando el usuario está autenticado) ─────
   useEffect(() => {
@@ -642,6 +646,83 @@ export default function App() {
                           Bienvenido al Sistema de Control de Flota oficial. Esta plataforma consolida la telemetría de sus proveedores de GPS (<strong className="text-slate-900">BlackGPS, Maxtracker, Webfleet</strong>), tarjetas de combustible, odómetros, y vigencia legal de documentación SOAP y revisión técnica.
                         </p>
                       </div>
+                    </div>
+
+                    {/* Buscador Rápido de PPU / Patente */}
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 text-left space-y-4 shadow-sm" id="search-ppu-dashboard">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Search className="w-5 h-5 text-indigo-650" />
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Consulta Rápida por Patente (PPU)</h4>
+                            <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Busque de forma instantánea cualquier unidad para verificar su contrato, kilometraje y estado operativo.</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Ingrese patente (ej. ABCD12)..."
+                          value={searchPpu}
+                          onChange={(e) => setSearchPpu(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                          className="w-full text-xs p-3 pl-10 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-indigo-650 transition-all font-mono font-bold tracking-widest text-slate-805"
+                          maxLength={6}
+                        />
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                      </div>
+
+                      {searchPpu && (() => {
+                        const matchedVehicle = vehicles.find(v => v.ppu.toUpperCase() === searchPpu.toUpperCase());
+                        if (!matchedVehicle) {
+                          return (
+                            <div className="p-3 text-xs text-slate-400 italic bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center">
+                              No se encontró ninguna unidad con la patente "{searchPpu}".
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div className="p-4 bg-indigo-50/30 rounded-xl border border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fade-in">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs bg-slate-950 text-white font-mono font-extrabold px-2 py-0.5 rounded tracking-widest">
+                                  {matchedVehicle.ppu}
+                                </span>
+                                <strong className="text-sm font-bold text-slate-900">{matchedVehicle.marca} {matchedVehicle.modelo}</strong>
+                                <span className="text-[10px] bg-indigo-100 text-indigo-755 px-2 py-0.5 rounded font-sans font-bold">
+                                  {matchedVehicle.tipo}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-550">
+                                Conductor: <span className="text-slate-800 font-semibold">{matchedVehicle.chofer || 'No asignado'}</span>
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-6 shrink-0 text-left">
+                              <div>
+                                <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Contrato</span>
+                                <span className="text-xs font-bold text-slate-800 font-sans block mt-0.5">{matchedVehicle.contrato || 'N/A'}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Odómetro</span>
+                                <span className="text-xs font-bold text-slate-800 font-mono block mt-0.5">{matchedVehicle.kilometraje.toLocaleString()} km</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Estado</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                                  matchedVehicle.estado === 'Operativo' ? 'bg-emerald-100 text-emerald-800' :
+                                  matchedVehicle.estado === 'Mantenimiento' ? 'bg-amber-100 text-amber-800' :
+                                  matchedVehicle.estado === 'Siniestrado' ? 'bg-rose-100 text-rose-800' :
+                                  'bg-slate-100 text-slate-800'
+                                }`}>
+                                  {matchedVehicle.estado}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
 

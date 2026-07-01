@@ -17,6 +17,12 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+// Diagnóstico de clave API de Firebase en consola del navegador
+console.log('--- DIAGNÓSTICO FIREBASE ---');
+console.log('API Key length:', firebaseConfig.apiKey ? firebaseConfig.apiKey.length : 'undefined');
+console.log('API Key prefix:', firebaseConfig.apiKey ? firebaseConfig.apiKey.substring(0, 8) : 'none');
+console.log('Project ID:', firebaseConfig.projectId);
+
 const app = initializeApp(firebaseConfig);
 
 /** Base de datos Firestore */

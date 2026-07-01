@@ -69,7 +69,8 @@ import {
   Fuel,
   Lock,
   CheckCircle,
-  ClipboardCheck
+  ClipboardCheck,
+  Gauge
 } from 'lucide-react';
 
 export default function App() {
@@ -708,6 +709,70 @@ export default function App() {
                             Descargas deshabilitadas en rol actual
                           </span>
                         )}
+                      </div>
+                    </div>
+
+                    {/* Dashboard Widget: Kilometraje de Flota y Contratos */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 text-left space-y-5 shadow-sm" id="widget-kilometraje-flota">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Gauge className="w-5 h-5 text-indigo-600 animate-pulse" />
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Kilometraje de Flota Consolidado</h4>
+                            <p className="text-[10px] text-slate-500 mt-0.5">Kilómetros totales recorridos por la flota agrupados por contratos operativos</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">KM TOTAL FLOTA</span>
+                          <div className="font-mono font-extrabold text-lg text-slate-900 mt-0.5">
+                            {vehicles.reduce((sum, v) => sum + (v.kilometraje || 0), 0).toLocaleString()} <span className="text-xs text-slate-555 font-sans font-normal">km</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {Object.entries(
+                          vehicles.reduce((acc, v) => {
+                            const c = v.contrato?.trim() || 'Sin Contrato';
+                            if (!acc[c]) {
+                              acc[c] = { km: 0, count: 0 };
+                            }
+                            acc[c].km += (v.kilometraje || 0);
+                            acc[c].count += 1;
+                            return acc;
+                          }, {} as Record<string, { km: number; count: number }>)
+                        ).map(([contrato, val]) => {
+                          const info = val as { km: number; count: number };
+                          const totalKm = vehicles.reduce((sum, v) => sum + (v.kilometraje || 0), 0) || 1;
+                          const percentage = Math.min(100, Math.round((info.km / totalKm) * 100));
+                          return (
+                            <div key={contrato} className="bg-slate-50 p-4 rounded-xl border border-slate-150 flex flex-col justify-between hover:border-slate-300 transition-all">
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs font-bold text-slate-800">{contrato}</span>
+                                  <span className="text-[9px] bg-slate-200 text-slate-650 px-1.5 py-0.5 rounded font-mono font-bold">
+                                    {info.count} {info.count === 1 ? 'unidad' : 'unidades'}
+                                  </span>
+                                </div>
+                                <div className="font-mono font-extrabold text-base text-indigo-650 mt-1">
+                                  {info.km.toLocaleString()} <span className="text-[10px] text-slate-500 font-sans font-normal">km</span>
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <div className="flex justify-between text-[9px] text-slate-450 mb-1 font-mono">
+                                  <span>Distribución km</span>
+                                  <span>{percentage}%</span>
+                                </div>
+                                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                  <div 
+                                    className="bg-indigo-600 h-full rounded-full transition-all"
+                                    style={{ width: `${percentage}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 

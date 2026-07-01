@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { UserRole, UserPermissions } from '../types';
-import { UserPlus, Shield, ShieldCheck, Mail, Lock, Unlock, CheckSquare, Square, Eye, EyeOff, Save } from 'lucide-react';
+import { UserPlus, Shield, ShieldCheck, Mail, Lock, Unlock, CheckSquare, Square, Eye, EyeOff, Save, Trash2 } from 'lucide-react';
 import { auth } from '../lib/firebase';
 
 interface PermissionsManagerProps {
@@ -95,6 +95,47 @@ export default function PermissionsManager({
       alert(`Error al crear usuario: ${err.message}`);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!currentUserRole.permisos.gestionar_usuarios) {
+      alert('Su cuenta actual no cuenta con autorización para eliminar otros usuarios.');
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `⚠️ ¿Está completamente seguro de que desea eliminar permanentemente al usuario "${userName}"?\n\n` +
+      `Esta acción borrará al usuario de Firebase Authentication y de la base de datos de perfiles, impidiendo que vuelva a iniciar sesión. Esto no se puede deshacer.`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      const token = await auth.currentUser?.getIdToken(true);
+      if (!token) {
+        throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión.');
+      }
+
+      const res = await fetch('/api/delete-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ uid: userId })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Error al eliminar el usuario en el servidor.');
+      }
+
+      alert(`¡El usuario "${userName}" fue eliminado con éxito del sistema!`);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error al eliminar usuario: ${err.message}`);
     }
   };
 
@@ -325,6 +366,17 @@ export default function PermissionsManager({
                       >
                         {u.activo ? 'Activo' : 'Suspendido'}
                       </button>
+
+                      {u.email !== auth.currentUser?.email && (
+                        <button
+                          onClick={() => handleDeleteUser(u.id, u.nombre)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg font-bold border border-rose-100 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-all cursor-pointer inline-flex items-center gap-1"
+                          title="Eliminar permanentemente del sistema"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Eliminar</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 

@@ -1,7 +1,50 @@
 import React, { useState } from 'react';
 import { UserRole, UserPermissions } from '../types';
-import { UserPlus, Shield, ShieldCheck, Mail, Lock, Unlock, CheckSquare, Square, Eye, EyeOff, Save, Trash2 } from 'lucide-react';
+import {
+  UserPlus, Shield, ShieldCheck, Unlock, Lock,
+  Trash2, AlertTriangle, Info, ChevronDown, ChevronUp,
+  CheckCircle2, ExternalLink, Copy, Users, Eye, EyeOff
+} from 'lucide-react';
 import { auth } from '../lib/firebase';
+import { addUser, deleteUser as deleteUserFromFirestore } from '../lib/firestore';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Safely parses an API response. If the server returned plain text instead of
+ * JSON (e.g. Vercel's default "A server error has occurred"), wraps the text
+ * in an error object instead of throwing a SyntaxError.
+ */
+const safeParseJSON = async (res: Response): Promise<any> => {
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    return await res.json();
+  }
+  const text = await res.text().catch(() => '');
+  return {
+    error: `Error del servidor (HTTP ${res.status})${text ? ': ' + text.slice(0, 200) : ''}`,
+  };
+};
+
+/** Build a default permissions object based on the chosen role. */
+const getDefaultPermissions = (role: 'Administrador' | 'Gestor' | 'Operador'): UserPermissions => ({
+  ver_dashboard: true,
+  ver_mapas: true,
+  ver_flota: true,
+  editar_flota: role !== 'Operador',
+  ver_documentos: true,
+  cargar_documentos: role === 'Administrador' || role === 'Gestor',
+  descargar_documentos: role === 'Administrador' || role === 'Gestor',
+  movimientos_flota: true,
+  incidentes_siniestros: true,
+  mantenimientos: role !== 'Operador',
+  gestionar_usuarios: role === 'Administrador',
+  descargar_auditoria: role === 'Administrador' || role === 'Gestor',
+  carga_masiva: role === 'Administrador',
+  gestion_supervisores: true,
+});
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 interface PermissionsManagerProps {
   users: UserRole[];
@@ -14,29 +57,60 @@ export default function PermissionsManager({
   users,
   onUpdateUsers,
   currentUserRole,
-  onSelectActiveSimulatedUser
+  onSelectActiveSimulatedUser,
 }: PermissionsManagerProps) {
+  // Form visibility
   const [isAdding, setIsAdding] = useState(false);
-  
-  // Form states to create new user
+
+  // New user form fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [roleGroup, setRoleGroup] = useState<'Administrador' | 'Gestor' | 'Operador'>('Operador');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Local-creation fallback modal state
+  const [pendingLocalCreate, setPendingLocalCreate] = useState<{
+    name: string;
+    email: string;
+    role: 'Administrador' | 'Gestor' | 'Operador';
+  } | null>(null);
+  const [isCreatingLocally, setIsCreatingLocally] = useState(false);
+  const [showAdminGuide, setShowAdminGuide] = useState(false);
+  const [copiedStep, setCopiedStep] = useState<number | null>(null);
+
+  // ── Form helpers ────────────────────────────────────────────────────────────
+
+  const resetForm = () => {
+    setName('');
+    setEmail('');
+    setPassword('');
+    setShowPassword(false);
+    setRoleGroup('Operador');
+    setIsAdding(false);
+  };
+
+  const copyToClipboard = (text: string, step: number) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedStep(step);
+      setTimeout(() => setCopiedStep(null), 2000);
+    });
+  };
+
+  // ── Create user via Vercel/Firebase Admin API ───────────────────────────────
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!currentUserRole.permisos.gestionar_usuarios) {
       alert('Su cuenta actual no cuenta con autorización para crear otros usuarios.');
       return;
     }
-
     if (!name || !email || !password) {
       alert('Por favor llene todos los campos requeridos.');
       return;
     }
-
     if (password.length < 6) {
       alert('La contraseña debe tener al menos 6 caracteres.');
       return;
@@ -44,59 +118,78 @@ export default function PermissionsManager({
 
     setIsSubmitting(true);
     try {
-      // 1. Obtener Token de ID del usuario actual de Firebase Auth
       const token = await auth?.currentUser?.getIdToken(true);
       if (!token) {
-        throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión nuevamente.');
+        throw new Error(
+          'No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión nuevamente.'
+        );
       }
 
-      // 2. Llamar a la API serverless de Vercel
       const res = await fetch('/api/create-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-          role: roleGroup
-        })
+        body: JSON.stringify({ name, email, password, role: roleGroup }),
       });
 
-      const data = await res.json();
+      const data = await safeParseJSON(res);
 
       if (!res.ok) {
+        // Backend not configured → offer local Firestore fallback
         if (data.error === 'firebase-admin-not-configured') {
-          alert(
-            `⚠️ ERROR DE CONFIGURACIÓN DEL SERVIDOR:\n\n` +
-            `El backend de Vercel no tiene configuradas las variables de Cuenta de Servicio.\n\n` +
-            `Sigue estos pasos en Vercel:\n` +
-            `1. Ve a tu proyecto en Vercel > Settings > Environment Variables.\n` +
-            `2. Agrega la variable "FIREBASE_ADMIN_CLIENT_EMAIL" con tu correo de cuenta de servicio.\n` +
-            `3. Agrega la variable "FIREBASE_ADMIN_PRIVATE_KEY" con tu clave privada.\n\n` +
-            `El perfil de usuario NO ha sido creado en Firebase Authentication.`
-          );
+          setPendingLocalCreate({ name, email, role: roleGroup });
           return;
         }
         throw new Error(data.error || 'Error al procesar el registro en el servidor.');
       }
 
-      // 3. Éxito: el backend ya creó el Auth y el documento en Firestore
-      alert(`¡Usuario ${name} creado con éxito en el sistema! Ya puede iniciar sesión.`);
-      
-      setIsAdding(false);
-      setName('');
-      setEmail('');
-      setPassword('');
+      alert(`✅ ¡Usuario "${name}" creado con éxito!\n\nYa puede iniciar sesión con el correo ${email}.`);
+      resetForm();
     } catch (err: any) {
-      console.error(err);
+      console.error('handleCreateUser error:', err);
       alert(`Error al crear usuario: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // ── Local Firestore-only creation (fallback when Admin SDK unavailable) ─────
+
+  const handleLocalCreate = async () => {
+    if (!pendingLocalCreate) return;
+    const { name: n, email: e, role } = pendingLocalCreate;
+
+    setIsCreatingLocally(true);
+    try {
+      await addUser({
+        nombre: n,
+        email: e.toLowerCase(),
+        rol: role,
+        activo: true,
+        permisos: getDefaultPermissions(role),
+      });
+
+      alert(
+        `✅ Perfil de "${n}" creado en la base de datos con los permisos de ${role}.\n\n` +
+        `ℹ️ Para que pueda iniciar sesión, el usuario debe registrarse en Firebase Authentication ` +
+        `usando exactamente el correo: ${e}\n\n` +
+        `Una vez registrado, el sistema reconocerá automáticamente su perfil y permisos.`
+      );
+
+      setPendingLocalCreate(null);
+      setShowAdminGuide(false);
+      resetForm();
+    } catch (err: any) {
+      console.error('handleLocalCreate error:', err);
+      alert(`Error al crear perfil localmente: ${err.message}`);
+    } finally {
+      setIsCreatingLocally(false);
+    }
+  };
+
+  // ── Delete user via API (with local fallback) ───────────────────────────────
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     if (!currentUserRole.permisos.gestionar_usuarios) {
@@ -106,40 +199,57 @@ export default function PermissionsManager({
 
     const confirmDelete = window.confirm(
       `⚠️ ¿Está completamente seguro de que desea eliminar permanentemente al usuario "${userName}"?\n\n` +
-      `Esta acción borrará al usuario de Firebase Authentication y de la base de datos de perfiles, impidiendo que vuelva a iniciar sesión. Esto no se puede deshacer.`
+      `Esta acción borrará al usuario de Firebase Authentication y de la base de datos de perfiles, ` +
+      `impidiendo que vuelva a iniciar sesión. Esto no se puede deshacer.`
     );
-
     if (!confirmDelete) return;
 
     try {
       const token = await auth?.currentUser?.getIdToken(true);
       if (!token) {
-        throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión.');
+        throw new Error(
+          'No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión.'
+        );
       }
 
       const res = await fetch('/api/delete-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ uid: userId })
+        body: JSON.stringify({ uid: userId }),
       });
 
-      const data = await res.json();
+      const data = await safeParseJSON(res);
 
       if (!res.ok) {
+        // Backend not configured → offer to delete only from Firestore
+        if (data.error === 'firebase-admin-not-configured') {
+          const confirmLocal = window.confirm(
+            `⚠️ El servidor no tiene Firebase Admin configurado.\n\n` +
+            `Solo se puede eliminar el PERFIL de la base de datos. "${userName}" ` +
+            `conservará su acceso en Firebase Auth hasta que se configure el backend.\n\n` +
+            `¿Desea eliminar únicamente el perfil de permisos de la base de datos?`
+          );
+          if (!confirmLocal) return;
+
+          await deleteUserFromFirestore(userId);
+          alert(`El perfil de "${userName}" fue eliminado de la base de datos.\n\nNota: Su cuenta de autenticación (login) aún existe. Configura Firebase Admin en Vercel para eliminaciones completas.`);
+          return;
+        }
         throw new Error(data.error || 'Error al eliminar el usuario en el servidor.');
       }
 
-      alert(`¡El usuario "${userName}" fue eliminado con éxito del sistema!`);
+      alert(`✅ ¡El usuario "${userName}" fue eliminado con éxito del sistema!`);
     } catch (err: any) {
-      console.error(err);
+      console.error('handleDeleteUser error:', err);
       alert(`Error al eliminar usuario: ${err.message}`);
     }
   };
 
-  // Toggle single permission instantly with click!
+  // ── Permission toggle ───────────────────────────────────────────────────────
+
   const handleTogglePermission = (userId: string, key: keyof UserPermissions) => {
     if (!currentUserRole.permisos.gestionar_usuarios) {
       alert('No posee privilegios ejecutivos para alterar la matriz de seguridad de la corporación logístico-comercial.');
@@ -155,8 +265,7 @@ export default function PermissionsManager({
     });
 
     onUpdateUsers(updatedUsers);
-    
-    // If we altered the currently simulated user, sync state too!
+
     const updatedTarget = updatedUsers.find(u => u.id === currentUserRole.id);
     if (updatedTarget) {
       onSelectActiveSimulatedUser(updatedTarget);
@@ -177,14 +286,14 @@ export default function PermissionsManager({
     });
     onUpdateUsers(updatedUsers);
 
-    // If we altered the currently simulated user, sync state too!
     const updatedTarget = updatedUsers.find(u => u.id === currentUserRole.id);
     if (updatedTarget) {
       onSelectActiveSimulatedUser(updatedTarget);
     }
   };
 
-  // Human names for permissions showing inside the administrator panel matrix
+  // ── Permission label map ────────────────────────────────────────────────────
+
   const permissionLabels: Record<keyof UserPermissions, string> = {
     ver_dashboard: 'Ver Tableros de Control',
     ver_mapas: 'Monitoreo GPS Satelital',
@@ -199,13 +308,181 @@ export default function PermissionsManager({
     gestionar_usuarios: 'Matriz Cortafuegos (Crear Usuarios)',
     descargar_auditoria: 'Descargar Auditorías Excel / PDF',
     carga_masiva: 'Carga Masiva de Planillas',
-    gestion_supervisores: 'Módulo Gestión Supervisores (Terreno)'
+    gestion_supervisores: 'Módulo Gestión Supervisores (Terreno)',
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6" id="permissions-manager-root">
-      
-      {/* User Session Banner Notice */}
+
+      {/* ── Firebase Admin Not Configured Modal ─────────────────────────── */}
+      {pendingLocalCreate && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full space-y-5 overflow-hidden">
+
+            {/* Modal header */}
+            <div className="bg-amber-50 border-b border-amber-200 p-5 flex items-start gap-3">
+              <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Firebase Admin SDK no configurado</h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  El servidor no tiene las variables de entorno de Firebase Admin configuradas.
+                  Escoge una opción para continuar.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 space-y-4">
+              {/* Option 1: Local profile */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">1</div>
+                  <h4 className="font-bold text-slate-800 text-sm">Crear solo perfil en base de datos</h4>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed ml-8">
+                  Se creará el perfil y permisos de <strong>{pendingLocalCreate.name}</strong>{' '}
+                  como <strong>{pendingLocalCreate.role}</strong> en Firestore.
+                  El usuario podrá iniciar sesión cuando se registre con el correo{' '}
+                  <strong className="text-indigo-700">{pendingLocalCreate.email}</strong>.
+                </p>
+                <div className="ml-8">
+                  <button
+                    onClick={handleLocalCreate}
+                    disabled={isCreatingLocally}
+                    className="mt-1 px-4 py-2 text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg transition-all disabled:opacity-50 inline-flex items-center gap-2"
+                  >
+                    {isCreatingLocally ? (
+                      <>
+                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                        Creando perfil...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Crear Solo Perfil
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Option 2: Configure Firebase Admin */}
+              <div className="border border-indigo-200 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setShowAdminGuide(!showAdminGuide)}
+                  className="w-full flex items-center justify-between p-4 bg-indigo-50 hover:bg-indigo-100 transition-all text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-indigo-200 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0">2</div>
+                    <div>
+                      <span className="text-xs font-bold text-indigo-900 block">Configurar Firebase Admin en Vercel</span>
+                      <span className="text-[10px] text-indigo-700">Recomendado — habilita creación y eliminación completa de usuarios</span>
+                    </div>
+                  </div>
+                  {showAdminGuide ? (
+                    <ChevronUp className="w-4 h-4 text-indigo-600 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-indigo-600 shrink-0" />
+                  )}
+                </button>
+
+                {showAdminGuide && (
+                  <div className="p-4 bg-white border-t border-indigo-100 space-y-3 text-xs text-slate-700">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pasos para configurar:</p>
+
+                    {[
+                      {
+                        n: 1,
+                        text: 'Ve a Firebase Console → tu proyecto',
+                        link: 'https://console.firebase.google.com/project/scf-flota/settings/serviceaccounts/adminsdk',
+                        linkLabel: 'Abrir Firebase Console →',
+                      },
+                      {
+                        n: 2,
+                        text: 'En "Cuentas de servicio", haz clic en "Generar nueva clave privada" y descarga el JSON.',
+                        link: null,
+                        linkLabel: null,
+                      },
+                      {
+                        n: 3,
+                        text: 'Copia el valor de "client_email" del JSON descargado. Pégalo en Vercel como:',
+                        copy: 'FIREBASE_ADMIN_CLIENT_EMAIL',
+                        link: null,
+                        linkLabel: null,
+                      },
+                      {
+                        n: 4,
+                        text: 'Copia el valor de "private_key" del JSON. Pégalo en Vercel como:',
+                        copy: 'FIREBASE_ADMIN_PRIVATE_KEY',
+                        link: null,
+                        linkLabel: null,
+                      },
+                      {
+                        n: 5,
+                        text: 'Ve a tu proyecto en Vercel → Settings → Environment Variables y agrega las 2 variables anteriores.',
+                        link: 'https://vercel.com',
+                        linkLabel: 'Abrir Vercel →',
+                      },
+                      {
+                        n: 6,
+                        text: 'Haz un Redeploy del proyecto en Vercel para que tome efecto.',
+                        link: null,
+                        linkLabel: null,
+                      },
+                    ].map((step) => (
+                      <div key={step.n} className="flex items-start gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                          {step.n}
+                        </span>
+                        <div className="flex-1 space-y-1">
+                          <p className="leading-relaxed">{step.text}</p>
+                          {step.copy && (
+                            <button
+                              onClick={() => copyToClipboard(step.copy!, step.n)}
+                              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[10px] px-2 py-1 rounded transition-all"
+                            >
+                              {copiedStep === step.n ? (
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                              {copiedStep === step.n ? '¡Copiado!' : step.copy}
+                            </button>
+                          )}
+                          {step.link && (
+                            <a
+                              href={step.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-semibold transition-all"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              {step.linkLabel}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div className="px-5 pb-5">
+              <button
+                onClick={() => { setPendingLocalCreate(null); setShowAdminGuide(false); }}
+                className="w-full py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-all"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Session Banner ──────────────────────────────────────────────── */}
       <div className="bg-slate-900 text-slate-100 p-5 rounded-2xl border border-slate-700 text-left flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -214,7 +491,8 @@ export default function PermissionsManager({
           </div>
           <h4 className="font-bold text-sm">Administración de Permisos y Roles de Usuario</h4>
           <p className="text-xs text-slate-400">
-            Cambie de perfil en la barra superior del sistema o elija una cuenta abajo para pruebas y control de accesos. Los privilegios sobre los paneles, descargas, SOAP y vehículos se aplicarán de inmediato.
+            Cambie de perfil en la barra superior del sistema o elija una cuenta abajo para pruebas y control de accesos.
+            Los privilegios se aplicarán de inmediato.
           </p>
         </div>
 
@@ -227,10 +505,10 @@ export default function PermissionsManager({
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
-        
-        {/* Matrix of Users Lists */}
+
+        {/* ── Matrix of Users ─────────────────────────────────────────── */}
         <div className="flex-1 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs text-left">
-          <div className="flex items-center justify-between mb-4 border-b border-slate-150 pb-3">
+          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
             <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-indigo-600" />
               Matriz de Permisos de Acceso Logístico
@@ -248,11 +526,14 @@ export default function PermissionsManager({
             )}
           </div>
 
-          {/* User registration form inside Administrator permissions manager */}
+          {/* ── New User Form ──────────────────────────────────────────── */}
           {isAdding && currentUserRole.permisos.gestionar_usuarios && (
-            <form onSubmit={handleCreateUser} className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-5 space-y-3">
+            <form
+              onSubmit={handleCreateUser}
+              className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-5 space-y-3"
+            >
               <h5 className="font-bold text-xs text-slate-800">Registrar Nuevo Usuario Coordinador</h5>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nombre Completo</label>
@@ -278,15 +559,25 @@ export default function PermissionsManager({
                 </div>
                 <div>
                   <label className="text-[11px] font-semibold text-slate-600 block mb-1">Contraseña de Acceso</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg"
-                    placeholder="Mín. 6 caracteres"
-                    minLength={6}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full text-xs p-2 pr-8 bg-white border border-slate-200 rounded-lg"
+                      placeholder="Mín. 6 caracteres"
+                      minLength={6}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer flex items-center justify-center"
+                      title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    >
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-[11px] font-semibold text-slate-600 block mb-1">Rol Operativo</label>
@@ -296,7 +587,7 @@ export default function PermissionsManager({
                     className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg"
                   >
                     <option value="Administrador">Administrador (Control Supremo)</option>
-                    <option value="Gestor">Gestor (Monitoreo & Carga)</option>
+                    <option value="Gestor">Gestor (Monitoreo &amp; Carga)</option>
                     <option value="Operador">Operador de Turno (Bitácoras Básicas)</option>
                   </select>
                 </div>
@@ -305,8 +596,8 @@ export default function PermissionsManager({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
-                  className="px-3 py-1.5 text-xs text-slate-550 border border-slate-200 hover:bg-slate-100 rounded-lg"
+                  onClick={resetForm}
+                  className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 hover:bg-slate-100 rounded-lg"
                 >
                   Cancelar
                 </button>
@@ -315,13 +606,13 @@ export default function PermissionsManager({
                   disabled={isSubmitting}
                   className="px-4 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-lg"
                 >
-                  {isSubmitting ? 'Creando...' : 'Crear Cuenta'}
+                  {isSubmitting ? 'Verificando...' : 'Crear Cuenta'}
                 </button>
               </div>
             </form>
           )}
 
-          {/* Table display representing instant clicks toggle permission */}
+          {/* ── Users permission matrix ────────────────────────────────── */}
           <div className="space-y-4">
             {users.map(u => {
               const worksAsSimul = u.id === currentUserRole.id;
@@ -329,9 +620,9 @@ export default function PermissionsManager({
                 <div key={u.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3 pb-2 border-b border-slate-200/50">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <strong className="font-bold text-slate-900 text-sm">{u.nombre}</strong>
-                        <span className="text-[9px] bg-slate-250 text-slate-600 px-1.5 py-0.2 rounded font-mono font-bold tracking-wider">
+                        <span className="text-[9px] bg-slate-300 text-slate-600 px-1.5 py-0.2 rounded font-mono font-bold tracking-wider">
                           {u.id}
                         </span>
                         {worksAsSimul && (
@@ -339,11 +630,18 @@ export default function PermissionsManager({
                             Cuenta Seleccionada
                           </span>
                         )}
+                        {!u.activo && (
+                          <span className="text-[9px] bg-rose-100 text-rose-700 font-extrabold px-2 py-0.2 rounded-full">
+                            Suspendida
+                          </span>
+                        )}
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">{u.email} • Rol: <strong className="text-slate-700">{u.rol}</strong></div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {u.email} • Rol: <strong className="text-slate-700">{u.rol}</strong>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={() => onSelectActiveSimulatedUser(u)}
                         className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all ${
@@ -358,8 +656,8 @@ export default function PermissionsManager({
                       <button
                         onClick={() => handleToggleUserActive(u.id)}
                         className={`text-xs px-2.5 py-1.5 rounded-lg font-bold border transition-all ${
-                          u.activo 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                          u.activo
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                             : 'bg-rose-50 text-rose-700 border-rose-100'
                         }`}
                         title={u.activo ? 'Desactivar esta cuenta' : 'Activar esta cuenta'}
@@ -380,10 +678,12 @@ export default function PermissionsManager({
                     </div>
                   </div>
 
-                  {/* Click elements: give or remove privileges instantly as requested! */}
+                  {/* Permission toggles */}
                   <div>
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Permisos Modulares: Habilite / Deshabilite con 1 click</span>
-                    
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                      Permisos Modulares: Habilite / Deshabilite con 1 click
+                    </span>
+
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                       {Object.keys(u.permisos).map(key => {
                         const hasAccess = u.permisos[key as keyof UserPermissions];
@@ -395,10 +695,14 @@ export default function PermissionsManager({
                             onClick={() => handleTogglePermission(u.id, permKey)}
                             disabled={!currentUserRole.permisos.gestionar_usuarios}
                             className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${
-                              hasAccess 
-                                ? 'bg-indigo-50 border-indigo-200 text-slate-900' 
-                                : 'bg-white border-slate-150 text-slate-400'
-                            } ${!currentUserRole.permisos.gestionar_usuarios ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:border-indigo-400'}`}
+                              hasAccess
+                                ? 'bg-indigo-50 border-indigo-200 text-slate-900'
+                                : 'bg-white border-slate-100 text-slate-400'
+                            } ${
+                              !currentUserRole.permisos.gestionar_usuarios
+                                ? 'opacity-70 cursor-not-allowed'
+                                : 'cursor-pointer hover:border-indigo-400'
+                            }`}
                             title={`Click para ${hasAccess ? 'remover' : 'otorgar'} el acceso`}
                             id={`perm-btn-${u.id}-${key}`}
                           >
@@ -406,7 +710,7 @@ export default function PermissionsManager({
                               {hasAccess ? (
                                 <Unlock className="w-3.5 h-3.5 text-indigo-700" />
                               ) : (
-                                <Lock className="w-3.5 h-3.5 text-slate-350" />
+                                <Lock className="w-3.5 h-3.5 text-slate-300" />
                               )}
                             </span>
                             <span className="text-[10px] font-semibold leading-tight break-words">
@@ -423,42 +727,66 @@ export default function PermissionsManager({
           </div>
         </div>
 
-        {/* Informative column of security status log */}
-        <div className="lg:w-80 bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 text-left h-fit space-y-4">
-          <div className="flex items-center gap-2 text-indigo-400">
-            <Shield className="w-5 h-5 animate-pulse" />
-            <h4 className="font-bold text-sm">Cifrado Logístico Oficial</h4>
-          </div>
+        {/* ── Security sidebar ───────────────────────────────────────────── */}
+        <div className="lg:w-80 space-y-4">
+          <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 text-left space-y-4">
+            <div className="flex items-center gap-2 text-indigo-400">
+              <Shield className="w-5 h-5 animate-pulse" />
+              <h4 className="font-bold text-sm">Cifrado Logístico Oficial</h4>
+            </div>
 
-          <p className="text-xs text-slate-350 leading-relaxed">
-            La plataforma utiliza hashing de seguridad operacional local para almacenar los permisos en tiempo real de la flota. Cumple con la normativa ISO 27001 para la protección de accesos limitados.
-          </p>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              La plataforma utiliza hashing de seguridad operacional local para almacenar los permisos
+              en tiempo real de la flota. Cumple con la normativa ISO 27001 para la protección de accesos limitados.
+            </p>
 
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-2">
-            <h5 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Trazabilidad de Auditorías</h5>
-            <div className="space-y-1.5 font-mono text-[9px] text-slate-400">
-              <div className="flex justify-between">
-                <span>[18:59:02]</span>
-                <span className="text-slate-100">Cifrado de PPU Vigente</span>
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+              <h5 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Trazabilidad de Auditorías</h5>
+              <div className="space-y-1.5 font-mono text-[9px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>[18:59:02]</span>
+                  <span className="text-slate-100">Cifrado de PPU Vigente</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>[18:59:12]</span>
+                  <span className="text-slate-100">BOM Excel Inyectado</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>[18:59:58]</span>
+                  <span className="text-emerald-400">DB Sincrona Local OK</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>[18:59:12]</span>
-                <span className="text-slate-100">BOM Excel Inyectado</span>
-              </div>
-              <div className="flex justify-between">
-                <span>[18:59:58]</span>
-                <span className="text-emerald-400">DB Sincrona Local OK</span>
-              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-400">
+              Recuerde que como <strong>Administrador</strong> puede modificar de forma libre el acceso
+              a la bitácora documental de cada vehículo para simular incidentes o auditorías logísticas estrictas.
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-400">
-            Recuerde que como <strong>Administrador</strong> puede modificar de forma libre el acceso a la bitácora documental de cada vehículo para simular incidentes o auditorías logísticas estrictas.
+          {/* Firebase Admin setup reminder card */}
+          <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl text-left space-y-2">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+              <h5 className="font-bold text-amber-900 text-xs">Configuración Firebase Admin</h5>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Para habilitar la creación y eliminación completa de usuarios (Auth + Firestore), configura las variables
+              <strong> FIREBASE_ADMIN_CLIENT_EMAIL</strong> y <strong>FIREBASE_ADMIN_PRIVATE_KEY</strong> en tu proyecto de Vercel.
+            </p>
+            <a
+              href="https://console.firebase.google.com/project/scf-flota/settings/serviceaccounts/adminsdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-amber-700 hover:text-amber-900 font-bold inline-flex items-center gap-1 underline transition-all"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Obtener credenciales en Firebase Console →
+            </a>
           </div>
         </div>
 
       </div>
-
     </div>
   );
 }

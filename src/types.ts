@@ -45,6 +45,7 @@ export interface Vehicle {
   tarjeta_combustible: ProveedorCombustible | string;
   numero_tag: string;
   kilometraje: number;
+  km_ultima_mantencion?: number; // Initial/fallback odometer at last maintenance
   contrato: string; // AVO, ISA MAIPO, etc.
   centro_costo: number; // Linked value
   proveedor: ProveedorLeasing | string;

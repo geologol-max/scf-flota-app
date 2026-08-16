@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Incident, Vehicle, UserPermissions } from '../types';
-import { AlertCircle, Plus, Search, Hammer, ShieldAlert, Sparkles, AlertTriangle } from 'lucide-react';
+import { AlertCircle, Plus, Search, Hammer, ShieldAlert, Sparkles, AlertTriangle, Edit3, Trash2 } from 'lucide-react';
 
 interface IncidentsTabProps {
   incidents: Incident[];
@@ -8,6 +8,7 @@ interface IncidentsTabProps {
   onUpdateIncidents: (newIncidents: Incident[]) => void;
   onUpdateVehicles: (updatedVehicles: Vehicle[]) => void;
   permissions: UserPermissions;
+  currentUserRole: string;
 }
 
 export default function IncidentsTab({
@@ -15,10 +16,12 @@ export default function IncidentsTab({
   vehicles,
   onUpdateIncidents,
   onUpdateVehicles,
-  permissions
+  permissions,
+  currentUserRole
 }: IncidentsTabProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
 
   // Form states
   const [plate, setPlate] = useState('');
@@ -27,6 +30,27 @@ export default function IncidentsTab({
   const [gravity, setGravity] = useState<'Leve' | 'Moderada' | 'Grave'>('Moderada');
   const [cost, setCost] = useState<number>(0);
   const [insuranceComments, setInsuranceComments] = useState('');
+
+  const handleEdit = (inc: Incident) => {
+    setEditingIncident(inc);
+    setPlate(inc.ppu);
+    setIncidentType(inc.tipo_incidente);
+    setDescription(inc.descripcion);
+    setGravity(inc.gravedad);
+    setCost(inc.costo_estimado);
+    setInsuranceComments(inc.comentario_seguro || '');
+    setIsAdding(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (currentUserRole !== 'Administrador') {
+      alert('Permisos insuficientes: Solo el administrador puede borrar registros.');
+      return;
+    }
+    if (confirm('¿Está seguro de eliminar este registro de siniestro?')) {
+      onUpdateIncidents(incidents.filter(i => i.id !== id));
+    }
+  };
 
   const handleRegisterIncident = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,19 +70,40 @@ export default function IncidentsTab({
       return;
     }
 
-    // Create log
-    const nextInc: Incident = {
-      id: `INC-${Math.floor(Math.random() * 9000 + 1000)}`,
-      codigo_vehiculo: veh.codigo_unico,
-      ppu: veh.ppu,
-      fecha: new Date().toISOString().slice(0, 10),
-      tipo_incidente: incidentType,
-      descripcion: description,
-      gravedad: gravity,
-      costo_estimado: Number(cost) || 0,
-      estado_resolucion: 'Pendiente',
-      comentario_seguro: insuranceComments
-    };
+    if (editingIncident) {
+      const updatedIncidents = incidents.map(i => {
+        if (i.id === editingIncident.id) {
+          return {
+            ...i,
+            ppu: veh.ppu,
+            codigo_vehiculo: veh.codigo_unico,
+            tipo_incidente: incidentType,
+            descripcion: description,
+            gravedad: gravity,
+            costo_estimado: Number(cost) || 0,
+            comentario_seguro: insuranceComments
+          };
+        }
+        return i;
+      });
+      onUpdateIncidents(updatedIncidents);
+      setEditingIncident(null);
+    } else {
+      // Create log
+      const nextInc: Incident = {
+        id: `INC-${Math.floor(Math.random() * 9000 + 1000)}`,
+        codigo_vehiculo: veh.codigo_unico,
+        ppu: veh.ppu,
+        fecha: new Date().toISOString().slice(0, 10),
+        tipo_incidente: incidentType,
+        descripcion: description,
+        gravedad: gravity,
+        costo_estimado: Number(cost) || 0,
+        estado_resolucion: 'Pendiente',
+        comentario_seguro: insuranceComments
+      };
+      onUpdateIncidents([nextInc, ...incidents]);
+    }
 
     // Auto-update vehicle operational state to 'Siniestrado' if incident is Grave or Moderada
     const nextVehicles = vehicles.map(v => {
@@ -72,7 +117,6 @@ export default function IncidentsTab({
     });
 
     onUpdateVehicles(nextVehicles);
-    onUpdateIncidents([nextInc, ...incidents]);
     setIsAdding(false);
 
     // Reset Form
@@ -240,7 +284,7 @@ export default function IncidentsTab({
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="px-4 py-2 text-xs border border-slate-200 hover:bg-slate-100 text-slate-650 rounded-lg"
+              className="px-4 py-2 text-xs border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-lg"
             >
               Cancelar
             </button>
@@ -310,7 +354,7 @@ export default function IncidentsTab({
                 )}
 
                 {inc.costo_estimado > 0 && (
-                  <div className="mt-2 text-xs font-mono font-semibold text-slate-750">
+                  <div className="mt-2 text-xs font-mono font-semibold text-slate-700">
                     Presupuesto Daños Reparación: <span className="text-rose-600 font-bold">${inc.costo_estimado.toLocaleString()} CLP</span>
                   </div>
                 )}
@@ -327,26 +371,56 @@ export default function IncidentsTab({
                   </span>
                 </div>
 
-                {permissions.editar_flota && inc.estado_resolucion !== 'Resuelto' && (
-                  <div className="flex gap-2">
-                    {inc.estado_resolucion === 'Pendiente' && (
+                <div className="flex items-center gap-2">
+                  {permissions.editar_flota && inc.estado_resolucion !== 'Resuelto' && (
+                    <div className="flex gap-1.5 mr-1.5 border-r border-slate-200 pr-2">
+                      {inc.estado_resolucion === 'Pendiente' && (
+                        <button
+                          onClick={() => handleResolveSiniestro(inc.id, 'En Proceso', false)}
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-bold py-1 px-2.5 rounded-lg border border-amber-200 transition-all cursor-pointer"
+                        >
+                          Pasar a Curso
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleResolveSiniestro(inc.id, 'En Proceso', false)}
-                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-bold py-1 px-2.5 rounded-lg border border-amber-200 transition-all"
+                        onClick={() => handleResolveSiniestro(inc.id, 'Resuelto', true)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                        title="Reparar Vehículo y Retornarlo al Estado Operativo"
                       >
-                        Pasar a Curso
+                        <Hammer className="w-3.5 h-3.5 text-white" />
+                        Resolver
                       </button>
-                    )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1">
                     <button
-                      onClick={() => handleResolveSiniestro(inc.id, 'Resuelto', true)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all flex items-center gap-1"
-                      title="Reparar Vehículo y Retornarlo al Estado Operativo"
+                      onClick={() => handleEdit(inc)}
+                      disabled={!permissions.incidentes_siniestros}
+                      className={`p-1.5 rounded-lg border transition-all ${
+                        permissions.incidentes_siniestros 
+                          ? 'border-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/50 cursor-pointer' 
+                          : 'opacity-30 cursor-not-allowed'
+                      }`}
+                      title="Editar Registro"
                     >
-                      <Hammer className="w-3 h-3" />
-                      Resolver y Operar
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDelete(inc.id)}
+                      disabled={currentUserRole !== 'Administrador'}
+                      className={`p-1.5 rounded-lg border transition-all ${
+                        currentUserRole === 'Administrador' 
+                          ? 'border-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer' 
+                          : 'opacity-30 cursor-not-allowed'
+                      }`}
+                      title="Borrar Registro"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                )}
+                </div>
               </div>
             </div>
           ))

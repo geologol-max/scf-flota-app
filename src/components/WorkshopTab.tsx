@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Vehicle, UserRole, WorkshopLog, WorkshopChecklist } from '../types';
-import { Wrench, ClipboardCheck, Calendar, User, Search, Plus, Check, FileText, Printer, ArrowRightLeft } from 'lucide-react';
+import { Wrench, ClipboardCheck, Calendar, User, Search, Plus, Check, FileText, Printer, ArrowRightLeft, Edit3, Trash2 } from 'lucide-react';
 
 interface WorkshopTabProps {
   mode: 'recepcion' | 'salida';
@@ -8,6 +8,7 @@ interface WorkshopTabProps {
   onUpdateVehicles: (updated: Vehicle[]) => void;
   logs: WorkshopLog[];
   onAddWorkshopLog: (log: Omit<WorkshopLog, 'id'>) => Promise<void>;
+  onUpdateLogs: (newLogs: WorkshopLog[]) => void;
   currentUser: UserRole;
 }
 
@@ -17,10 +18,13 @@ export default function WorkshopTab({
   onUpdateVehicles,
   logs,
   onAddWorkshopLog,
+  onUpdateLogs,
   currentUser
 }: WorkshopTabProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [editingLog, setEditingLog] = useState<WorkshopLog | null>(null);
 
   // Form states
   const [plate, setPlate] = useState('');
@@ -43,6 +47,38 @@ export default function WorkshopTab({
   const [pruebaRuta, setPruebaRuta] = useState(true);
 
   // Sync odometer when vehicle selection changes
+  const handleEdit = (log: WorkshopLog) => {
+    setEditingLog(log);
+    setPlate(log.ppu);
+    const parts = log.fecha.split(' ');
+    if (parts[0]) setDate(parts[0]);
+    if (parts[1]) setTime(parts[1]);
+    setOdometer(String(log.odometro));
+    setResponsible(log.responsable);
+    setComments(log.observaciones || '');
+    setLuces(log.checklist.luces);
+    setNeumaticos(log.checklist.neumaticos);
+    setCarroceria(log.checklist.carroceria);
+    setHerramientas(log.checklist.herramientas);
+    setDocumentos(log.checklist.documentos);
+    if (mode === 'salida') {
+      setLimpieza(log.checklist.limpieza ?? true);
+      setFluidos(log.checklist.fluidos ?? true);
+      setPruebaRuta(log.checklist.prueba_ruta ?? true);
+    }
+    setIsAdding(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (currentUser.rol !== 'Administrador') {
+      alert('Permisos insuficientes: Solo el administrador puede borrar registros.');
+      return;
+    }
+    if (confirm('¿Está seguro de eliminar este registro de taller?')) {
+      onUpdateLogs(logs.filter(l => l.id !== id));
+    }
+  };
+
   const handlePlateChange = (ppu: string) => {
     setPlate(ppu);
     const v = vehicles.find(veh => veh.ppu === ppu);
@@ -87,19 +123,38 @@ export default function WorkshopTab({
       ...(mode === 'salida' ? { limpieza, fluidos, prueba_ruta: pruebaRuta } : {})
     };
 
-    const newLog: Omit<WorkshopLog, 'id'> = {
-      tipo: mode === 'recepcion' ? 'Ingreso' : 'Salida',
-      ppu: plate,
-      codigo_vehiculo: veh.codigo_unico,
-      fecha: `${date} ${time}`,
-      odometro: odometerNum,
-      responsable: responsible,
-      checklist,
-      observaciones: comments
-    };
-
-    // Save checklist log to Firestore
-    await onAddWorkshopLog(newLog);
+    if (editingLog) {
+      const updatedLogs = logs.map(l => {
+        if (l.id === editingLog.id) {
+          return {
+            ...l,
+            ppu: plate,
+            codigo_vehiculo: veh.codigo_unico,
+            fecha: `${date} ${time}`,
+            odometro: odometerNum,
+            responsable: responsible,
+            checklist,
+            observaciones: comments
+          };
+        }
+        return l;
+      });
+      onUpdateLogs(updatedLogs);
+      setEditingLog(null);
+    } else {
+      const newLog: Omit<WorkshopLog, 'id'> = {
+        tipo: mode === 'recepcion' ? 'Ingreso' : 'Salida',
+        ppu: plate,
+        codigo_vehiculo: veh.codigo_unico,
+        fecha: `${date} ${time}`,
+        odometro: odometerNum,
+        responsable: responsible,
+        checklist,
+        observaciones: comments
+      };
+      // Save checklist log to Firestore
+      await onAddWorkshopLog(newLog);
+    }
 
     // Update vehicle state:
     // Reception: state becomes Mantenimiento
@@ -374,6 +429,216 @@ export default function WorkshopTab({
     printWindow.document.close();
   };
 
+  const handleDownloadLogPDF = (log: WorkshopLog) => {
+    const downloadWindow = window.open('', '_blank');
+    if (!downloadWindow) {
+      alert('Por favor habilite los pop-ups para descargar el acta en PDF.');
+      return;
+    }
+
+    const matchedVeh = vehicles.find(v => v.ppu === log.ppu);
+    const vehDetails = matchedVeh ? `${matchedVeh.marca} ${matchedVeh.modelo} (${matchedVeh.anio}) - ${matchedVeh.tipo}` : 'No disponible';
+
+    const checklistRows = [
+      { label: 'Sistema de Luces y Señalizadores', val: log.checklist.luces },
+      { label: 'Estado de Neumáticos y Presión', val: log.checklist.neumaticos },
+      { label: 'Estado de Carrocería / Rayaduras / Golpes', val: log.checklist.carroceria },
+      { label: 'Herramientas Obligatorias y Rueda de Repuesto', val: log.checklist.herramientas },
+      { label: 'Documentación a Bordo (SOAP, RT, Permiso)', val: log.checklist.documentos },
+      ...(log.tipo === 'Salida' ? [
+        { label: 'Limpieza Interior y Exterior', val: log.checklist.limpieza },
+        { label: 'Nivel de Fluidos (Aceite, refrigerante, frenos)', val: log.checklist.fluidos },
+        { label: 'Prueba de Ruta y Funcionamiento General', val: log.checklist.prueba_ruta }
+      ] : [])
+    ].map(item => `
+      <tr>
+        <td style="border: 1px solid #ddd; padding: 10px;">${item.label}</td>
+        <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: ${item.val ? '#166534' : '#991b1b'}; background-color: ${item.val ? '#dcfce7' : '#fee2e2'}">
+          ${item.val ? 'CONFORME (PASA)' : 'NO CONFORME (FALLA)'}
+        </td>
+      </tr>
+    `).join('');
+
+    const tipoLabel = log.tipo === 'Ingreso' ? 'Recepción' : 'Salida';
+    const filename = `Acta_${tipoLabel}_Taller_${log.ppu}_${log.id}.pdf`;
+
+    downloadWindow.document.write(`
+      <html>
+        <head>
+          <title>Acta de ${tipoLabel} de Taller - ${log.ppu}</title>
+          <style>
+            body {
+              font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+              color: #1e293b;
+              margin: 30px;
+              line-height: 1.5;
+            }
+            .header {
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 15px;
+              margin-bottom: 25px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .title {
+              font-size: 20px;
+              font-weight: bold;
+              color: #0f172a;
+              text-transform: uppercase;
+              margin: 0;
+            }
+            .badge-ot {
+              background-color: #0f172a;
+              color: white;
+              padding: 6px 12px;
+              font-size: 13px;
+              font-weight: bold;
+              border-radius: 4px;
+              font-family: monospace;
+            }
+            .section-title {
+              font-size: 11px;
+              font-weight: bold;
+              text-transform: uppercase;
+              background-color: #f1f5f9;
+              padding: 6px 10px;
+              margin-top: 25px;
+              margin-bottom: 12px;
+              border-left: 4px solid #0f172a;
+            }
+            .grid-info {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 12px;
+              margin-bottom: 18px;
+            }
+            .info-item { border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+            .info-label { font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; }
+            .info-value { font-size: 12px; font-weight: 550; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 30px; }
+            th { background-color: #0f172a; color: white; font-weight: bold; text-align: left; padding: 10px; }
+            .comments-box {
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 6px;
+              padding: 12px;
+              min-height: 60px;
+              font-size: 12px;
+            }
+            .signature-section {
+              margin-top: 60px;
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 40px;
+            }
+            .signature-box { text-align: center; border-top: 1px solid #cbd5e1; padding-top: 8px; }
+            .signature-title { font-size: 11px; font-weight: bold; }
+            .footer {
+              border-top: 1px dashed #cbd5e1;
+              padding-top: 10px;
+              font-size: 9px;
+              color: #64748b;
+              margin-top: 40px;
+              text-align: center;
+            }
+          </style>
+        </head>
+        <body>
+          <div id="acta-content">
+            <div class="header">
+              <div>
+                <h1 class="title">SCF FLOTA - CONTROL LOGÍSTICO</h1>
+                <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Acta Oficial de ${tipoLabel} de Taller</div>
+              </div>
+              <div class="badge-ot">REGISTRO ${log.id}</div>
+            </div>
+
+            <div style="text-align: right; font-size: 11px; color: #64748b; margin-bottom: 15px;">
+              <strong>Fecha/Hora:</strong> ${log.fecha}
+            </div>
+
+            <div class="section-title">1. Identificación de Unidad</div>
+            <div class="grid-info">
+              <div class="info-item">
+                <div class="info-label">Placa Patente (PPU)</div>
+                <div class="info-value" style="font-family: monospace; color: #1d4ed8; font-size: 13px;">${log.ppu}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Código Interno Móvil</div>
+                <div class="info-value" style="font-family: monospace;">${log.codigo_vehiculo}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Ficha Vehículo</div>
+                <div class="info-value">${vehDetails}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Kilometraje registrado (Odómetro)</div>
+                <div class="info-value">${log.odometro.toLocaleString()} km</div>
+              </div>
+            </div>
+
+            <div class="section-title">2. Checklist de Inspección (${tipoLabel})</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Punto de Inspección Obligatorio</th>
+                  <th style="width: 200px; text-align: center;">Estado Concesionario</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${checklistRows}
+              </tbody>
+            </table>
+
+            <div class="section-title">3. Observaciones y Hallazgos</div>
+            <div class="comments-box">
+              ${log.observaciones || 'No se detallan observaciones adicionales.'}
+            </div>
+
+            <div class="signature-section">
+              <div class="signature-box">
+                <div style="height: 50px;"></div>
+                <div class="signature-title">${log.responsable}</div>
+                <div style="font-size: 10px; color: #64748b;">Firma Responsable Logístico / Conductor</div>
+              </div>
+              <div class="signature-box">
+                <div style="height: 50px;"></div>
+                <div class="signature-title">Encargado de Taller Autorizado</div>
+                <div style="font-size: 10px; color: #64748b;">Firma de Entrega / Recepción Conforme</div>
+              </div>
+            </div>
+
+            <div class="footer">
+              ACTA DE REGISTRO DOCUMENTAL EMITIDA MEDIANTE CONSOLA DE CONTROL DE FLOTA SCF
+              <div style="margin-top: 5px;">Este control es indispensable para la cobertura de pólizas de seguro e inspección técnica fiscal.</div>
+            </div>
+          </div>
+
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                const element = document.getElementById('acta-content');
+                const opt = {
+                  margin:       10,
+                  filename:     '${filename}',
+                  image:        { type: 'jpeg', quality: 0.98 },
+                  html2canvas:  { scale: 2, useCORS: true },
+                  jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+                };
+                html2pdf().set(opt).from(element).save().then(() => {
+                  setTimeout(function() { window.close(); }, 1000);
+                });
+              }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    downloadWindow.document.close();
+  };
+
   return (
     <div className="space-y-6" id={`workshop-${mode}-tab`}>
       {/* Tab Header Banner */}
@@ -393,7 +658,7 @@ export default function WorkshopTab({
         <button
           onClick={() => setIsAdding(!isAdding)}
           className={`font-semibold rounded-xl text-xs py-2.5 px-4 inline-flex items-center gap-1.5 transition-all shadow-md shrink-0 text-white ${
-            mode === 'recepcion' ? 'bg-indigo-650 hover:bg-indigo-700' : 'bg-emerald-650 hover:bg-emerald-700'
+            mode === 'recepcion' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'
           }`}
           id="btn-add-workshop-log"
         >
@@ -406,35 +671,84 @@ export default function WorkshopTab({
       {isAdding && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left max-w-2xl mx-auto space-y-4" id="workshop-log-form">
           <h3 className="font-bold text-slate-900 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-            <ClipboardCheck className="w-4 h-4 text-indigo-650" />
+            <ClipboardCheck className="w-4 h-4 text-indigo-600" />
             Checklist de Control - {mode === 'recepcion' ? 'Ingreso a Taller' : 'Salida de Taller'}
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Patente Dropdown */}
-            <div>
-              <label htmlFor="select-ppu" className="text-xs font-semibold text-slate-700 block mb-1">Vehículo (PPU)*</label>
-              <select
-                id="select-ppu"
+            {/* Patente Autocomplete */}
+            <div className="relative">
+              <label htmlFor="input-ppu" className="text-xs font-semibold text-slate-700 block mb-1">Vehículo (PPU)*</label>
+              <input
+                type="text"
+                id="input-ppu"
                 value={plate}
-                onChange={(e) => handlePlateChange(e.target.value)}
-                className="w-full text-xs p-2.5 border border-slate-200 rounded-lg bg-white font-bold"
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  setPlate(val);
+                  const exactMatch = vehicles.find(v => v.ppu === val);
+                  if (exactMatch) {
+                    setOdometer(String(exactMatch.kilometraje));
+                  } else {
+                    setOdometer('');
+                  }
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => {
+                  // A small delay so clicking a suggestion executes first
+                  setTimeout(() => setShowSuggestions(false), 250);
+                }}
+                className="w-full text-xs p-2.5 border border-slate-200 rounded-lg bg-white font-mono font-bold tracking-widest uppercase focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                placeholder="Escriba PPU (ej. RJGY88)"
                 required
-              >
-                <option value="">Seleccione Vehículo...</option>
-                {vehicles
-                  .filter(v => mode === 'recepcion' ? v.estado !== 'Mantenimiento' : v.estado === 'Mantenimiento')
-                  .concat(
-                    // Fallback to let you select any vehicle just in case
-                    vehicles.filter(v => mode === 'recepcion' ? v.estado === 'Mantenimiento' : v.estado !== 'Mantenimiento')
-                  )
-                  .map(v => (
-                    <option key={v.ppu} value={v.ppu}>
-                      {v.codigo_unico} ({v.ppu}) - {v.marca} {v.modelo} [Estado: {v.estado}]
-                    </option>
-                  ))
-                }
-              </select>
+                autoComplete="off"
+              />
+              {showSuggestions && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {(() => {
+                    const preferredVehicles = vehicles.filter(v => mode === 'recepcion' ? v.estado !== 'Mantenimiento' : v.estado === 'Mantenimiento');
+                    const otherVehicles = vehicles.filter(v => mode === 'recepcion' ? v.estado === 'Mantenimiento' : v.estado !== 'Mantenimiento');
+                    const sortedAutocompleteVehicles = [...preferredVehicles, ...otherVehicles].filter(v => {
+                      return v.ppu.toLowerCase().includes(plate.toLowerCase()) || v.codigo_unico.toLowerCase().includes(plate.toLowerCase());
+                    });
+
+                    if (sortedAutocompleteVehicles.length === 0) {
+                      return (
+                        <div className="px-3 py-2.5 text-xs text-slate-400 italic text-center">
+                          No se encontraron patentes
+                        </div>
+                      );
+                    }
+
+                    return sortedAutocompleteVehicles.map(v => (
+                      <button
+                        key={v.ppu}
+                        type="button"
+                        onClick={() => {
+                          handlePlateChange(v.ppu);
+                          setShowSuggestions(false);
+                        }}
+                        className="w-full text-left px-3 py-2.5 text-xs hover:bg-slate-50 border-b border-slate-100 last:border-0 font-medium transition-all"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <span className="font-mono font-bold bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 mr-2 uppercase tracking-wider">{v.ppu}</span>
+                            <span className="text-slate-800 font-semibold">{v.codigo_unico} • {v.marca} {v.modelo}</span>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.2 rounded-full ${
+                            v.estado === 'Operativo' ? 'bg-emerald-50 text-emerald-700' :
+                            v.estado === 'Mantenimiento' ? 'bg-amber-50 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {v.estado}
+                          </span>
+                        </div>
+                      </button>
+                    ));
+                  })()}
+                </div>
+              )}
             </div>
 
             {/* Kilometraje input */}
@@ -504,53 +818,53 @@ export default function WorkshopTab({
             <span className="text-xs font-bold text-slate-800 uppercase tracking-wide block mb-3">Inspección de Seguridad Básica (Checklist)</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
               
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none">
-                <span className="text-xs font-semibold text-slate-750">Luces y Señalizadores Operativos</span>
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none">
+                <span className="text-xs font-semibold text-slate-700">Luces y Señalizadores Operativos</span>
                 <input
                   type="checkbox"
                   checked={luces}
                   onChange={(e) => setLuces(e.target.checked)}
-                  className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                 />
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none">
-                <span className="text-xs font-semibold text-slate-750">Neumáticos en Buen Estado</span>
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none">
+                <span className="text-xs font-semibold text-slate-700">Neumáticos en Buen Estado</span>
                 <input
                   type="checkbox"
                   checked={neumaticos}
                   onChange={(e) => setNeumaticos(e.target.checked)}
-                  className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                 />
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none">
-                <span className="text-xs font-semibold text-slate-750">Carrocería sin Golpes Nuevos</span>
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none">
+                <span className="text-xs font-semibold text-slate-700">Carrocería sin Golpes Nuevos</span>
                 <input
                   type="checkbox"
                   checked={carroceria}
                   onChange={(e) => setCarroceria(e.target.checked)}
-                  className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                 />
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none">
-                <span className="text-xs font-semibold text-slate-750">Herramientas y Rueda de Repuesto</span>
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none">
+                <span className="text-xs font-semibold text-slate-700">Herramientas y Rueda de Repuesto</span>
                 <input
                   type="checkbox"
                   checked={herramientas}
                   onChange={(e) => setHerramientas(e.target.checked)}
-                  className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                 />
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none sm:col-span-2">
-                <span className="text-xs font-semibold text-slate-750">Documentos del Vehículo a Bordo</span>
+              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none sm:col-span-2">
+                <span className="text-xs font-semibold text-slate-700">Documentos del Vehículo a Bordo</span>
                 <input
                   type="checkbox"
                   checked={documentos}
                   onChange={(e) => setDocumentos(e.target.checked)}
-                  className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                 />
               </label>
 
@@ -558,36 +872,36 @@ export default function WorkshopTab({
               {mode === 'salida' && (
                 <>
                   <div className="col-span-1 sm:col-span-2 border-t border-slate-200 my-1 pt-2">
-                    <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wide block">Controles Adicionales de Calidad (Salida)</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block">Controles Adicionales de Calidad (Salida)</span>
                   </div>
 
-                  <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none">
-                    <span className="text-xs font-semibold text-slate-750">Limpieza Interior y Exterior</span>
+                  <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none">
+                    <span className="text-xs font-semibold text-slate-700">Limpieza Interior y Exterior</span>
                     <input
                       type="checkbox"
                       checked={limpieza}
                       onChange={(e) => setLimpieza(e.target.checked)}
-                      className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none">
-                    <span className="text-xs font-semibold text-slate-750">Niveles de Fluidos Revisados</span>
+                  <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none">
+                    <span className="text-xs font-semibold text-slate-700">Niveles de Fluidos Revisados</span>
                     <input
                       type="checkbox"
                       checked={fluidos}
                       onChange={(e) => setFluidos(e.target.checked)}
-                      className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-150 shadow-xs cursor-pointer select-none sm:col-span-2">
-                    <span className="text-xs font-semibold text-slate-750">Prueba de Ruta y Test Funcional OK</span>
+                  <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-xs cursor-pointer select-none sm:col-span-2">
+                    <span className="text-xs font-semibold text-slate-700">Prueba de Ruta y Test Funcional OK</span>
                     <input
                       type="checkbox"
                       checked={pruebaRuta}
                       onChange={(e) => setPruebaRuta(e.target.checked)}
-                      className="w-4.5 h-4.5 text-indigo-650 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      className="w-4.5 h-4.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
                     />
                   </label>
                 </>
@@ -647,7 +961,7 @@ export default function WorkshopTab({
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto text-left">
           <table className="w-full text-xs table-auto">
-            <thead className="bg-slate-50 text-slate-550 font-semibold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+            <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 uppercase tracking-wider text-[10px]">
               <tr>
                 <th className="py-3 px-4">Folio ID</th>
                 <th className="py-3 px-4">Patente PPU</th>
@@ -676,7 +990,7 @@ export default function WorkshopTab({
                     <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900">{log.id}</td>
                       <td className="py-3.5 px-4">
-                        <span className="font-mono bg-slate-100 text-slate-900 font-bold px-1.5 py-0.5 rounded border border-slate-250">
+                        <span className="font-mono bg-slate-100 text-slate-900 font-bold px-1.5 py-0.5 rounded border border-slate-300">
                           {log.ppu}
                         </span>
                         <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">COD: {log.codigo_vehiculo}</span>
@@ -684,7 +998,7 @@ export default function WorkshopTab({
                       <td className="py-3.5 px-4 font-mono text-slate-500 whitespace-nowrap">{log.fecha}</td>
                       <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">{log.odometro.toLocaleString()} km</td>
                       <td className="py-3.5 px-4 flex items-center gap-1.5 mt-2">
-                        <User className="w-3.5 h-3.5 text-slate-450 shrink-0" />
+                        <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                         <span className="truncate max-w-[130px]">{log.responsable}</span>
                       </td>
                       <td className="py-3.5 px-4">
@@ -698,14 +1012,51 @@ export default function WorkshopTab({
                         {log.observaciones || 'Sin detalles'}
                       </td>
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => handlePrintLog(log)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-[11px] font-bold border border-indigo-100 transition-all cursor-pointer shadow-xs"
-                          title="Imprimir Acta Oficial"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Imprimir Acta</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => handlePrintLog(log)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-[11px] font-bold border border-indigo-100 transition-all cursor-pointer shadow-xs"
+                            title="Imprimir Acta Oficial"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Imprimir Acta</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleDownloadLogPDF(log)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[11px] font-bold border border-emerald-100 transition-all cursor-pointer shadow-xs"
+                            title="Descargar Acta en formato PDF"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Descargar PDF</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => handleEdit(log)}
+                            disabled={currentUser.rol === 'Operador'}
+                            className={`p-1.5 rounded-lg border transition-all ${
+                              currentUser.rol !== 'Operador' 
+                                ? 'border-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/50 cursor-pointer' 
+                                : 'opacity-30 cursor-not-allowed'
+                            }`}
+                            title="Editar Registro"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => handleDelete(log.id)}
+                            disabled={currentUser.rol !== 'Administrador'}
+                            className={`p-1.5 rounded-lg border transition-all ${
+                              currentUser.rol === 'Administrador' 
+                                ? 'border-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer' 
+                                : 'opacity-30 cursor-not-allowed'
+                            }`}
+                            title="Borrar Registro"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

@@ -11,11 +11,15 @@ const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'scf-flota';
 if (!getApps().length) {
   if (clientEmail && privateKey) {
     try {
+      console.log('clientEmail:', clientEmail);
+      console.log('privateKey length:', privateKey?.length);
+      const processedKey = privateKey.replace(/\\n/g, '\n');
+      
       initializeApp({
         credential: cert({
           projectId,
           clientEmail,
-          privateKey: privateKey.replace(/\\n/g, '\n'),
+          privateKey: processedKey,
         }),
       });
       console.log('Firebase Admin SDK inicializado exitosamente.');
@@ -76,15 +80,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'El token no contiene un correo válido.' });
     }
 
-    // 6. Consultar los permisos del llamador en Firestore
-    const usersSnap = await db
+    // 6. Consultar los permisos del llamador en Firestore (con fallback insensible a mayúsculas/minúsculas)
+    let usersSnap = await db
       .collection('users')
       .where('email', '==', callerEmail.toLowerCase())
       .limit(1)
       .get();
 
     if (usersSnap.empty) {
-      return res.status(403).json({ error: 'Su cuenta no está registrada en la base de datos de perfiles.' });
+      usersSnap = await db
+        .collection('users')
+        .where('email', '==', callerEmail)
+        .limit(1)
+        .get();
+    }
+
+    if (usersSnap.empty) {
+      return res.status(403).json({ error: `Su cuenta (${callerEmail}) no está registrada en la base de datos de perfiles.` });
     }
 
     const callerDoc = usersSnap.docs[0].data();

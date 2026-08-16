@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Vehicle, TipoVehiculo, ProveedorGPS, ProveedorCombustible, ProveedorLeasing, CONTRATO_CENTRO_COSTO, DocumentosVehiculo, UserPermissions } from '../types';
+import { Vehicle, TipoVehiculo, ProveedorGPS, ProveedorCombustible, ProveedorLeasing, CONTRATO_CENTRO_COSTO, DocumentosVehiculo, UserPermissions, MaintenanceLog } from '../types';
 import { INITIAL_VEHICLE_TYPES } from '../mockData';
-import { Plus, Table, Download, Upload, Trash2, Edit3, ShieldAlert, CheckCircle, FileText, AlertCircle, FileSpreadsheet, Search } from 'lucide-react';
+import { Plus, Table, Download, Upload, Trash2, Edit3, ShieldAlert, CheckCircle, FileText, AlertCircle, FileSpreadsheet, Search, RefreshCw } from 'lucide-react';
 import { exportToExcel, triggerPDFPrint } from '../utils/exporters';
 
 interface VehicleInventoryProps {
@@ -11,6 +11,10 @@ interface VehicleInventoryProps {
   permissions: UserPermissions;
   customCategories: string[];
   onCreateCategory: (cat: string) => void;
+  maintenanceLogs: MaintenanceLog[];
+  vehicleToEditPpu?: string | null;
+  onClearVehicleToEdit?: () => void;
+  currentUserRole: string;
 }
 
 export default function VehicleInventory({
@@ -18,7 +22,11 @@ export default function VehicleInventory({
   onUpdateVehicles,
   permissions,
   customCategories,
-  onCreateCategory
+  onCreateCategory,
+  maintenanceLogs,
+  vehicleToEditPpu,
+  onClearVehicleToEdit,
+  currentUserRole
 }: VehicleInventoryProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -26,6 +34,9 @@ export default function VehicleInventory({
   const [searchTerm, setSearchTerm] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+
+  // Quick lookup state
+  const [quickSearchPpu, setQuickSearchPpu] = useState('');
 
   // Form states
   const [code, setCode] = useState('');
@@ -38,6 +49,7 @@ export default function VehicleInventory({
   const [fuelCard, setFuelCard] = useState<string>('Copec');
   const [tag, setTag] = useState('');
   const [odometer, setOdometer] = useState<number>(0);
+  const [lastMaintOdometer, setLastMaintOdometer] = useState<number | ''>('');
   const [contract, setContract] = useState<string>('AVO');
   const [provider, setProvider] = useState<string>('SALFA');
   const [driver, setDriver] = useState('');
@@ -55,6 +67,17 @@ export default function VehicleInventory({
 
   const allCategories = [...INITIAL_VEHICLE_TYPES, ...customCategories];
 
+  // Redirect to edit mode if requested by parent component
+  useEffect(() => {
+    if (vehicleToEditPpu) {
+      const v = vehicles.find(veh => veh.ppu === vehicleToEditPpu);
+      if (v) {
+        handleEdit(v);
+      }
+      onClearVehicleToEdit?.();
+    }
+  }, [vehicleToEditPpu, vehicles]);
+
   const resetForm = () => {
     setCode(`FL-${Math.floor(Math.random() * 900 + 100)}`);
     setPpu('');
@@ -66,6 +89,7 @@ export default function VehicleInventory({
     setFuelCard('Copec');
     setTag('');
     setOdometer(0);
+    setLastMaintOdometer('');
     setContract('AVO');
     setProvider('SALFA');
     setDriver('');
@@ -141,6 +165,7 @@ export default function VehicleInventory({
       tarjeta_combustible: fuelCard,
       numero_tag: tag || `TAG-${Math.floor(Math.random() * 900000 + 100000)}`,
       kilometraje: Number(odometer),
+      km_ultima_mantencion: lastMaintOdometer !== '' ? Number(lastMaintOdometer) : 0,
       contrato: contract,
       centro_costo: cc,
       proveedor: provider,
@@ -177,6 +202,7 @@ export default function VehicleInventory({
     setFuelCard(v.tarjeta_combustible);
     setTag(v.numero_tag);
     setOdometer(v.kilometraje);
+    setLastMaintOdometer(v.km_ultima_mantencion !== undefined ? v.km_ultima_mantencion : '');
     setContract(v.contrato);
     setProvider(v.proveedor);
     setDriver(v.chofer || '');
@@ -190,8 +216,8 @@ export default function VehicleInventory({
   };
 
   const handleDelete = (ppuToDelete: string) => {
-    if (!permissions.editar_flota) {
-      alert('Permisos insuficientes para eliminar vehículos.');
+    if (currentUserRole !== 'Administrador') {
+      alert('Permisos insuficientes: Solo el administrador puede eliminar vehículos.');
       return;
     }
     if (confirm('¿Está seguro de eliminar este vehículo de la flota activa? Se perderán sus bitácoras documentales asociadas.')) {
@@ -390,6 +416,17 @@ export default function VehicleInventory({
     reader.readAsArrayBuffer(file);
   };
 
+  // Helper for last maintenance km
+  const getLastMaintenanceKm = (ppu: string) => {
+    const vehicleLogs = maintenanceLogs.filter(log => log.ppu === ppu);
+    if (vehicleLogs.length === 0) {
+      const veh = vehicles.find(v => v.ppu === ppu);
+      return veh?.km_ultima_mantencion !== undefined ? veh.km_ultima_mantencion : 0;
+    }
+    const sortedLogs = [...vehicleLogs].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    return sortedLogs[0].kilometraje;
+  };
+
   // Filter local inventory
   const filteredVehiclesList = vehicles.filter(v => {
     return (
@@ -404,6 +441,37 @@ export default function VehicleInventory({
 
   return (
     <div className="space-y-6" id="vehicle-inventory-view">
+
+      {/* Consulta Rápida por PPU */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 text-left space-y-3 shadow-xs">
+        <div className="flex items-center gap-2">
+          <Search className="w-5 h-5 text-indigo-600" />
+          <div>
+            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Consulta Rápida por Patente (PPU)</h4>
+            <p className="text-[10px] text-slate-500 mt-0.5">Escriba una patente de 6 caracteres (letras y números) para verificarla y cargar su formulario de edición de forma automatizada.</p>
+          </div>
+        </div>
+        <div className="relative max-w-xs">
+          <input
+            type="text"
+            placeholder="Ingrese patente (ej. RJGY88)..."
+            value={quickSearchPpu}
+            onChange={(e) => {
+              const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+              setQuickSearchPpu(val);
+              if (val.length === 6) {
+                const match = vehicles.find(v => v.ppu === val);
+                if (match) {
+                  handleEdit(match);
+                }
+              }
+            }}
+            maxLength={6}
+            className="w-full text-xs p-2.5 pl-10 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-indigo-600 transition-all font-mono font-bold tracking-widest text-slate-805 uppercase"
+          />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+        </div>
+      </div>
       
       {/* Hidden file input for document handling */}
       <input
@@ -675,6 +743,17 @@ export default function VehicleInventory({
             </div>
 
             <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">Km Última Mantención (Inicial)</label>
+              <input
+                type="number"
+                value={lastMaintOdometer}
+                onChange={(e) => setLastMaintOdometer(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 font-mono"
+                placeholder="Opcional. Ej. 20000"
+              />
+            </div>
+
+            <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">Contrato</label>
               <select
                 value={contract}
@@ -779,7 +858,7 @@ export default function VehicleInventory({
                 resetForm();
                 setIsAdding(false);
               }}
-              className="px-4 py-2 text-xs border border-slate-200 hover:bg-slate-100 text-slate-650 rounded-xl"
+              className="px-4 py-2 text-xs border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl"
             >
               Cancelar
             </button>
@@ -827,6 +906,7 @@ export default function VehicleInventory({
                 <th className="py-3 px-4 text-left">Tipo</th>
                 <th className="py-3 px-4 text-left">Contrato / CC</th>
                 <th className="py-3 px-4 text-right">Odómetro</th>
+                <th className="py-3 px-4 text-right">Última Mantención</th>
                 <th className="py-3 px-4 text-center">GPS</th>
                 <th className="py-3 px-4 text-center">Estado</th>
                 <th className="py-3 px-4 text-center">Carpeta Documental Digital</th>
@@ -836,7 +916,7 @@ export default function VehicleInventory({
             <tbody className="divide-y divide-slate-100 text-left" id="inventory-tbody">
               {filteredVehiclesList.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-12 text-slate-400">
+                  <td colSpan={11} className="text-center py-12 text-slate-400">
                     No se encontraron vehículos disponibles en el inventario.
                   </td>
                 </tr>
@@ -845,7 +925,14 @@ export default function VehicleInventory({
                   return (
                     <tr
                       key={v.codigo_unico}
-                      className="hover:bg-slate-50/50 transition-colors"
+                      className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest('button') || target.closest('input')) {
+                          return;
+                        }
+                        handleEdit(v);
+                      }}
                       id={`row-${v.codigo_unico}`}
                     >
                       {/* Code */}
@@ -855,7 +942,7 @@ export default function VehicleInventory({
 
                       {/* Plate */}
                       <td className="py-3 px-4">
-                        <span className="font-mono bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded border border-slate-250">
+                        <span className="font-mono bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded border border-slate-300">
                           {v.ppu}
                         </span>
                       </td>
@@ -880,6 +967,35 @@ export default function VehicleInventory({
                       {/* Mileage */}
                       <td className="py-3 px-4 text-right font-mono font-semibold">
                         {v.kilometraje.toLocaleString()} km
+                      </td>
+
+                      {/* Última Mantención & Rule (Task 3 & 4) */}
+                      <td className="py-3 px-4 text-right font-mono">
+                        {(() => {
+                          const lastMaint = getLastMaintenanceKm(v.ppu);
+                          const nextMaint = lastMaint + 10000;
+                          const isOverdue = v.kilometraje >= nextMaint;
+                          const diff = isOverdue ? (v.kilometraje - nextMaint) : (nextMaint - v.kilometraje);
+                          return (
+                            <>
+                              <div className="font-semibold text-slate-800">
+                                {lastMaint > 0 ? `${lastMaint.toLocaleString()} km` : 'No registra'}
+                              </div>
+                              <div className={`text-[10px] font-bold font-sans mt-0.5 ${
+                                isOverdue
+                                  ? 'text-rose-605 font-bold'
+                                  : diff <= 1000
+                                  ? 'text-amber-600 animate-pulse'
+                                  : 'text-slate-500'
+                              }`}>
+                                {isOverdue
+                                  ? `Vencida hace: ${diff.toLocaleString()} km`
+                                  : `Próxima en: ${diff.toLocaleString()} km`
+                                }
+                              </div>
+                            </>
+                          );
+                        })()}
                       </td>
 
                       {/* GPS Provider */}
@@ -999,10 +1115,10 @@ export default function VehicleInventory({
                           
                           <button
                             onClick={() => handleDelete(v.ppu)}
-                            disabled={!permissions.editar_flota}
+                            disabled={currentUserRole !== 'Administrador'}
                             className={`p-1.5 rounded-lg border transition-all ${
-                              permissions.editar_flota 
-                                ? 'border-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-50' 
+                              currentUserRole === 'Administrador' 
+                                ? 'border-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer' 
                                 : 'opacity-30 cursor-not-allowed'
                             }`}
                             title="Eliminar del Sistema"

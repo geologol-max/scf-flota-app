@@ -764,3 +764,256 @@ export function exportMaintenanceOrderToPDF(log: MaintenanceLog, vehicle?: Vehic
   printWindow.document.close();
 }
 
+export function downloadMaintenanceOrderAsPDF(log: MaintenanceLog, vehicle?: Vehicle): void {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Por favor habilite los pop-ups para descargar la orden de trabajo en formato PDF.');
+    return;
+  }
+
+  const now = new Date().toLocaleString();
+  const costFormatted = log.costo ? `$${log.costo.toLocaleString()}` : '$0';
+  const kmFormatted = log.kilometraje ? `${log.kilometraje.toLocaleString()} km` : 'No especificado';
+  const contract = log.contrato || (vehicle ? vehicle.contrato : 'No asignado');
+  const costCenter = log.centro_costo !== undefined ? log.centro_costo : (vehicle ? vehicle.centro_costo : 'No asignado');
+  const responsible = log.responsable || 'Administrador de Flota';
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Orden de Trabajo N° ${log.id}</title>
+        <style>
+          body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            margin: 30px;
+            line-height: 1.5;
+            font-size: 13px;
+          }
+          .header {
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 12px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+          .title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0;
+          }
+          .subtitle {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 4px;
+          }
+          .badge-ot {
+            background-color: #0f172a;
+            color: white;
+            padding: 6px 12px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 4px;
+            font-family: monospace;
+          }
+          .section-title {
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            background-color: #f1f5f9;
+            padding: 6px 10px;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            border-left: 4px solid #0f172a;
+            color: #0f172a;
+          }
+          .grid-info {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 18px;
+          }
+          .info-item {
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 6px;
+          }
+          .info-label {
+            font-size: 10px;
+            font-weight: bold;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+          }
+          .info-value {
+            font-size: 13px;
+            color: #0f172a;
+            font-weight: 500;
+          }
+          .text-block {
+            background-color: #fafafa;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 12px;
+            min-height: 80px;
+            white-space: pre-wrap;
+            font-size: 12px;
+          }
+          .signature-section {
+            margin-top: 60px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 40px;
+          }
+          .signature-box {
+            text-align: center;
+            border-top: 1px solid #cbd5e1;
+            padding-top: 8px;
+          }
+          .signature-title {
+            font-size: 11px;
+            font-weight: bold;
+            color: #0f172a;
+            text-transform: uppercase;
+          }
+          .signature-subtitle {
+            font-size: 10px;
+            color: #64748b;
+            margin-top: 2px;
+          }
+          .footer {
+            border-top: 1px dashed #cbd5e1;
+            padding-top: 12px;
+            font-size: 9px;
+            color: #64748b;
+            margin-top: 50px;
+            text-align: center;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="ot-content-to-download">
+          <div class="header">
+            <div>
+              <h1 class="title">SCF FLOTA - PORTAL DE MANTENCIONES</h1>
+              <div class="subtitle">Consola de Control Reguladora S.A. • Chile</div>
+            </div>
+            <div class="badge-ot">ORDEN DE TRABAJO #${log.id}</div>
+          </div>
+
+          <div style="font-size: 11px; color: #64748b; text-align: right; margin-bottom: 12px;">
+            <strong>Emitido el:</strong> ${log.fecha} (Impreso: ${now})
+          </div>
+
+          <div class="section-title">1. Información del Vehículo y Contrato</div>
+          <div class="grid-info">
+            <div class="info-item">
+              <div class="info-label">Placa Patente Única (PPU)</div>
+              <div class="info-value" style="font-family: monospace; font-weight: bold; color: #1d4ed8;">${log.ppu}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Código Interno de Flota</div>
+              <div class="info-value" style="font-family: monospace;">${log.codigo_vehiculo}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Contrato en Operación</div>
+              <div class="info-value">${contract}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Centro de Costo Vinculado</div>
+              <div class="info-value">CC ${costCenter}</div>
+            </div>
+            ${vehicle ? `
+            <div class="info-item">
+              <div class="info-label">Detalles de Unidad</div>
+              <div class="info-value">${vehicle.marca} ${vehicle.modelo} (${vehicle.anio})</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Proveedor Leasing</div>
+              <div class="info-value">${vehicle.proveedor}</div>
+            </div>
+            ` : ''}
+          </div>
+
+          <div class="section-title">2. Detalles de Planificación y Taller Autorizado</div>
+          <div class="grid-info">
+            <div class="info-item">
+              <div class="info-label">Taller Ejecutor Destino</div>
+              <div class="info-value" style="font-weight: bold;">${log.taller}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Tipo de Servicio Solicitado</div>
+              <div class="info-value" style="color: #4338ca; font-weight: bold;">${log.tipo_servicio}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Kilometraje Programado (Odómetro)</div>
+              <div class="info-value" style="font-family: monospace;">${kmFormatted}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Costo Estimado Presupuesto (Neto)</div>
+              <div class="info-value" style="font-family: monospace; font-weight: bold; color: #15803d;">${costFormatted}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Responsable de Emisión / Autoriza</div>
+              <div class="info-value">${responsible}</div>
+            </div>
+          </div>
+
+          <div class="section-title">3. Detalle y Justificación de Trabajos Requeridos</div>
+          <div class="text-block">
+            ${log.descripcion}
+          </div>
+
+          <div class="section-title">4. Firmas y Concesiones de Recepción y Control</div>
+          <div style="font-size: 11px; color: #64748b; margin-bottom: 24px;">
+            Al firmar a continuación, se autoriza la ejecución de los trabajos mecánicos planificados y se valida la recepción conforme de la unidad física y los insumos correspondientes en el taller ejecutor.
+          </div>
+          
+          <div class="signature-section">
+            <div class="signature-box" style="margin-top: 40px;">
+              <div style="height: 50px;"></div>
+              <div class="signature-title">${responsible}</div>
+              <div class="signature-subtitle">Firma Responsable Emisor<br/>Consola Control Logística</div>
+            </div>
+            <div class="signature-box" style="margin-top: 40px;">
+              <div style="height: 50px;"></div>
+              <div class="signature-title">Firma Encargado de Taller</div>
+              <div class="signature-subtitle">Soporte Técnico / Taller Concesionario<br/>Recepción Conforme</div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <div>ORDEN DE TRABAJO OFICIAL DE CONTROL DE FLOTA • GENERADO MEDIANTE S.C.F. WEB CONSOLE</div>
+            <div style="margin-top: 40px;">Este documento tiene carácter regulatorio para su presentación ante la inspección técnica del contrato y validaciones de auditoría.</div>
+          </div>
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              const element = document.getElementById('ot-content-to-download');
+              const opt = {
+                margin:       10,
+                filename:     'Orden_de_Trabajo_${log.id}.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+              };
+              html2pdf().set(opt).from(element).save().then(() => {
+                setTimeout(function() {
+                  window.close();
+                }, 1000);
+              });
+            }, 500);
+          }
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+

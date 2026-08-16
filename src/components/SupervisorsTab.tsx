@@ -16,7 +16,9 @@ import {
   ChevronDown,
   ChevronUp,
   Coins,
-  Gauge
+  Gauge,
+  Edit3,
+  Trash2
 } from 'lucide-react';
 import { exportSupervisorFleetToExcel, exportSupervisorFleetToPDF } from '../utils/supervisorExporters';
 
@@ -26,6 +28,7 @@ interface SupervisorsTabProps {
   currentUser: UserRole;
   logs: SupervisorFleetLog[];
   onAddSupervisorLog: (log: Omit<SupervisorFleetLog, 'id'>) => Promise<void>;
+  onUpdateLogs: (newLogs: SupervisorFleetLog[]) => Promise<void>;
 }
 
 export default function SupervisorsTab({
@@ -33,13 +36,49 @@ export default function SupervisorsTab({
   onUpdateVehicles,
   currentUser,
   logs,
-  onAddSupervisorLog
+  onAddSupervisorLog,
+  onUpdateLogs
 }: SupervisorsTabProps) {
   // Logs and local storage persistence removed, using Firestore logs passed via props
 
   // Available contracts for dropdown filtering
   const allContracts = ['AVO', 'ISA MAIPO', 'RUTA DE LA FRUTA', 'NAHUELBUTA', 'CONG', 'PUENTE INDUSTRIAL', 'FEPASA', 'AUTOPISTA CENTRAL', 'AVN-TSC'];
   
+  // Helper to parse dates in both ISO format and the older Spanish locale string format
+  const parseLogDate = (dateStr: string): Date => {
+    let parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+    try {
+      const parts = dateStr.split(' ');
+      const dateParts = parts[0].split(/[-/]/);
+      const timeParts = parts[1] ? parts[1].split(':') : ['0', '0'];
+      const day = parseInt(dateParts[0], 10);
+      const month = parseInt(dateParts[1], 10) - 1;
+      const year = parseInt(dateParts[2], 10);
+      const hour = parseInt(timeParts[0], 10);
+      const minute = parseInt(timeParts[1], 10);
+      parsed = new Date(year, month, day, hour, minute);
+    } catch (e) {
+      // Fallback
+    }
+    return parsed;
+  };
+
+  // Helper to display date string in 'DD-MM-YYYY HH:mm' format
+  const formatDate = (dateStr: string): string => {
+    try {
+      const d = parseLogDate(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
   // Decide active contracts managed by selected user
   const isSupervisor = currentUser.rol === 'Supervisor';
   const supervisorAssignedContracts = currentUser.contratos_supervisor || [];
@@ -75,10 +114,49 @@ export default function SupervisorsTab({
   const [fuelPricePerLitre, setFuelPricePerLitre] = useState<string>('');
   const [fuelObservations, setFuelObservations] = useState<string>('');
   const [generalObservations, setGeneralObservations] = useState<string>('');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [editingLog, setEditingLog] = useState<SupervisorFleetLog | null>(null);
 
-  // Sync selected formula PPU whenever contract changes
+  const handleEdit = (log: SupervisorFleetLog) => {
+    setEditingLog(log);
+    setExpandedVehicle(log.ppu);
+    setFormPpu(log.ppu);
+    setNewOdometer(String(log.odometro));
+    if (log.combustible) {
+      setHasFuel(true);
+      setFuelProvider(log.combustible.proveedor);
+      setFuelDate(log.combustible.fecha);
+      setFuelTime(log.combustible.hora);
+      setFuelLitres(String(log.combustible.litros));
+      setFuelPricePerLitre(String(log.combustible.valor_combustible));
+      setFuelObservations(log.combustible.observaciones || '');
+    } else {
+      setHasFuel(false);
+      setFuelLitres('');
+      setFuelPricePerLitre('');
+      setFuelObservations('');
+    }
+    setGeneralObservations(log.observaciones || '');
+  };
+
+  const handleDeleteLog = async (id: string) => {
+    if (currentUser.rol !== 'Administrador') {
+      alert('Permisos insuficientes: Solo el administrador puede eliminar registros.');
+      return;
+    }
+    if (confirm('¿Está seguro de eliminar este reporte semanal?')) {
+      try {
+        await onUpdateLogs(logs.filter(l => l.id !== id));
+        alert('Reporte eliminado con éxito.');
+      } catch (err: any) {
+        alert(`Error al eliminar reporte: ${err.message || err}`);
+      }
+    }
+  };
+
+  // Sync selected formula PPU whenever contract changes (Case-Insensitive)
   useEffect(() => {
-    const matched = vehicles.filter(v => v.contrato === selectedContract);
+    const matched = vehicles.filter(v => v.contrato?.toUpperCase() === selectedContract.toUpperCase());
     if (matched.length > 0) {
       const exists = matched.find(v => v.ppu === formPpu);
       if (!exists) {
@@ -202,8 +280,8 @@ export default function SupervisorsTab({
   const cycle = getWeeklySchedule(nowDate);
   const cycleFridayStr = cycle.currentFriday.toISOString().slice(0, 10);
 
-  // Filter vehicles belonging to the selected contract
-  const contractVehicles = vehicles.filter(v => v.contrato === selectedContract);
+  // Filter vehicles belonging to the selected contract (Case-Insensitive)
+  const contractVehicles = vehicles.filter(v => v.contrato?.toUpperCase() === selectedContract.toUpperCase());
 
   // Search filter
   const filteredVehicles = contractVehicles.filter(v => {
@@ -221,7 +299,7 @@ export default function SupervisorsTab({
     // Find logs this week
     const thisWeekLogs = logs.filter(l => {
       if (l.ppu !== ppu) return false;
-      const logTime = new Date(l.fecha_actualizacion).getTime();
+      const logTime = parseLogDate(l.fecha_actualizacion).getTime();
       return logTime >= cycle.currentMonday.getTime();
     });
 
@@ -242,17 +320,17 @@ export default function SupervisorsTab({
   // KPI Calculations for selected contract fleet
   const totalOdometers = contractVehicles.reduce((sum, v) => sum + v.kilometraje, 0);
 
-  // Shell and Copec expenditure for the SELECTED CONTRACT's logs
-  const contractLogs = logs.filter(l => l.contrato === selectedContract);
+  // Shell and Copec expenditure for the SELECTED CONTRACT's logs (Case-Insensitive)
+  const contractLogs = logs.filter(l => l.contrato?.toUpperCase() === selectedContract.toUpperCase());
   const spentCopec = contractLogs.reduce((sum, l) => {
-    if (l.combustible?.proveedor === 'Copec') {
+    if (l.combustible?.proveedor?.toLowerCase() === 'copec') {
       return sum + l.combustible.monto_total;
     }
     return sum;
   }, 0);
 
   const spentShell = contractLogs.reduce((sum, l) => {
-    if (l.combustible?.proveedor === 'Shell') {
+    if (l.combustible?.proveedor?.toLowerCase() === 'shell') {
       return sum + l.combustible.monto_total;
     }
     return sum;
@@ -270,7 +348,7 @@ export default function SupervisorsTab({
   const isFullyUpdated = contractVehicles.length > 0 && vehiclesUpdatedThisWeek === contractVehicles.length;
 
   // Handle saving new supervisor report
-  const handleSaveReport = (ppu: string) => {
+  const handleSaveReport = async (ppu: string) => {
     const odometerNum = Number(newOdometer);
     const selectedVeh = vehicles.find(v => v.ppu === ppu);
 
@@ -311,47 +389,91 @@ export default function SupervisorsTab({
         litros: litresNum,
         valor_combustible: priceNum,
         monto_total: computedFuelTotal,
-        observaciones: fuelObservations.trim()
+        observaciones: fuelObservations.trim() || ""
       };
     }
 
-    // Capture exact updated date/time
-    const timestampStr = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' }).slice(0, 16).replace(',', '');
-    const newLog: Omit<SupervisorFleetLog, 'id'> = {
+    // Capture exact updated date/time as standard ISO String for cross-browser parsing
+    const timestampStr = new Date().toISOString();
+    const newLog: any = {
       ppu: ppu,
       fecha_actualizacion: timestampStr,
       odometro: odometerNum,
-      combustible: fuelInfo,
-      observaciones: generalObservations.trim() || undefined,
       periodoId: cycleFridayStr,
       supervisor_nombre: currentUser.nombre,
       contrato: selectedContract
     };
 
-    onAddSupervisorLog(newLog);
+    if (generalObservations.trim()) {
+      newLog.observaciones = generalObservations.trim();
+    }
+    if (fuelInfo) {
+      newLog.combustible = fuelInfo;
+    }
 
-    // Update main vehicle mileage state
-    const updatedVehicles = vehicles.map(v => {
-      if (v.ppu === ppu) {
-        return {
-          ...v,
-          kilometraje: odometerNum
-        };
+    setIsSaving(true);
+    try {
+      if (editingLog) {
+        const updatedLogs = logs.map(l => {
+          if (l.id === editingLog.id) {
+            const updated: any = {
+              ...l,
+              ppu: ppu,
+              fecha_actualizacion: timestampStr,
+              odometro: odometerNum,
+              periodoId: cycleFridayStr,
+              supervisor_nombre: currentUser.nombre,
+              contrato: selectedContract
+            };
+            if (generalObservations.trim()) {
+              updated.observaciones = generalObservations.trim();
+            } else {
+              delete updated.observaciones;
+            }
+            if (fuelInfo) {
+              updated.combustible = fuelInfo;
+            } else {
+              delete updated.combustible;
+            }
+            return updated;
+          }
+          return l;
+        });
+        await onUpdateLogs(updatedLogs);
+        setEditingLog(null);
+      } else {
+        // Await database write to capture permission or network errors
+        await onAddSupervisorLog(newLog);
       }
-      return v;
-    });
-    onUpdateVehicles(updatedVehicles);
 
-    // Reset state and collapse
-    setExpandedVehicle(null);
-    setNewOdometer('');
-    setHasFuel(false);
-    setFuelLitres('');
-    setFuelPricePerLitre('');
-    setFuelObservations('');
-    setGeneralObservations('');
+      // Update main vehicle mileage state
+      const updatedVehicles = vehicles.map(v => {
+        if (v.ppu === ppu) {
+          return {
+            ...v,
+            kilometraje: odometerNum
+          };
+        }
+        return v;
+      });
+      await onUpdateVehicles(updatedVehicles);
 
-    alert(`¡Reporte guardado con éxito para patente ${ppu}!`);
+      // Reset state and collapse
+      setExpandedVehicle(null);
+      setNewOdometer('');
+      setHasFuel(false);
+      setFuelLitres('');
+      setFuelPricePerLitre('');
+      setFuelObservations('');
+      setGeneralObservations('');
+
+      alert(`¡Reporte guardado con éxito para patente ${ppu}!`);
+    } catch (err: any) {
+      console.error('Error al guardar reporte:', err);
+      alert(`Error de base de datos: No se pudo guardar el reporte. Detalles: ${err.message || err}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -360,7 +482,7 @@ export default function SupervisorsTab({
       {/* Intro Panel banner */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left relative overflow-hidden">
         <div className="max-w-4xl">
-          <div className="bg-indigo-50 text-indigo-700 border border-indigo-150 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider w-fit mb-3 flex items-center gap-1.5">
+          <div className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider w-fit mb-3 flex items-center gap-1.5">
             <Gauge className="w-3.5 h-3.5" />
             Módulo Autónomo de Supervisión
           </div>
@@ -422,7 +544,7 @@ export default function SupervisorsTab({
               <span className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded-lg border">
                 {selectedContract}
               </span>
-              <span className="text-[11px] text-slate-450 italic">
+              <span className="text-[11px] text-slate-500 italic">
                 (Contrato restringido por su perfil de Supervisor)
               </span>
             </div>
@@ -430,7 +552,7 @@ export default function SupervisorsTab({
             <select
               value={selectedContract}
               onChange={(e) => setSelectedContract(e.target.value)}
-              className="p-1 px-3 border border-slate-200 rounded-lg text-xs bg-slate-50 font-bold text-slate-850 focus:border-slate-400 focus:outline-none"
+              className="p-1 px-3 border border-slate-200 rounded-lg text-xs bg-slate-50 font-bold text-slate-800 focus:border-slate-400 focus:outline-none"
               id="supervisor-contract-filter"
             >
               {allContracts.map(c => (
@@ -486,7 +608,7 @@ export default function SupervisorsTab({
               ${spentCopec.toLocaleString()} CLP
             </div>
           </div>
-          <span className="text-[9px] text-slate-450 uppercase font-mono font-bold block mt-3">Suministro Tarjetas Copec</span>
+          <span className="text-[9px] text-slate-500 uppercase font-mono font-bold block mt-3">Suministro Tarjetas Copec</span>
         </div>
 
         {/* Shell expenditure */}
@@ -500,7 +622,7 @@ export default function SupervisorsTab({
               ${spentShell.toLocaleString()} CLP
             </div>
           </div>
-          <span className="text-[9px] text-slate-450 uppercase font-mono font-bold block mt-3">Suministro Tarjetas Shell</span>
+          <span className="text-[9px] text-slate-500 uppercase font-mono font-bold block mt-3">Suministro Tarjetas Shell</span>
         </div>
 
       </div>
@@ -509,7 +631,7 @@ export default function SupervisorsTab({
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left space-y-4" id="unified-supervisor-report-form">
         <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className="bg-indigo-50 border border-indigo-150 text-indigo-700 px-2.5 py-0.5 rounded-lg text-[10px] uppercase font-bold tracking-wider w-fit flex items-center gap-1">
+            <div className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-lg text-[10px] uppercase font-bold tracking-wider w-fit flex items-center gap-1">
               <TrendingUp className="w-3.5 h-3.5" />
               Reporte de Terreno
             </div>
@@ -527,7 +649,7 @@ export default function SupervisorsTab({
             
             {/* Columna 1: Selección de Patente y Odómetro */}
             <div className="space-y-4">
-              <div className="p-4 bg-slate-50/50 border border-slate-150/70 rounded-xl space-y-3.5">
+              <div className="p-4 bg-slate-50/50 border border-slate-100/70 rounded-xl space-y-3.5">
                 <span className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider block">1. Unidad & Kilometraje</span>
                 
                 <div>
@@ -549,7 +671,7 @@ export default function SupervisorsTab({
                 {formPpu && (
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <div>
-                      <span className="text-[9px] text-slate-450 uppercase font-extrabold block mb-1">Odómetro Actual</span>
+                      <span className="text-[9px] text-slate-500 uppercase font-extrabold block mb-1">Odómetro Actual</span>
                       <div className="font-mono text-xs font-bold text-slate-500 bg-slate-100/80 p-2 rounded-lg border border-slate-200">
                         {(vehicles.find(v => v.ppu === formPpu)?.kilometraje || 0).toLocaleString()} km
                       </div>
@@ -572,7 +694,7 @@ export default function SupervisorsTab({
                 )}
               </div>
 
-              <div className="p-4 bg-slate-50/50 border border-slate-150/70 rounded-xl">
+              <div className="p-4 bg-slate-50/50 border border-slate-100/70 rounded-xl">
                 <span className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider block mb-2">3. Observaciones / Novedades</span>
                 <textarea
                   rows={2}
@@ -586,7 +708,7 @@ export default function SupervisorsTab({
 
             {/* Columna 2 y 3: Combustible y Ticketera */}
             <div className="md:col-span-2">
-              <div className="p-4 bg-slate-50/50 border border-slate-150/70 rounded-xl space-y-4 h-full flex flex-col justify-between">
+              <div className="p-4 bg-slate-50/50 border border-slate-100/70 rounded-xl space-y-4 h-full flex flex-col justify-between">
                 
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
                   <span className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider block flex items-center gap-1">
@@ -600,7 +722,7 @@ export default function SupervisorsTab({
                       id="form-has-fuel"
                       checked={hasFuel}
                       onChange={(e) => setHasFuel(e.target.checked)}
-                      className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-550 cursor-pointer"
+                      className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-indigo-500 cursor-pointer"
                     />
                     <label htmlFor="form-has-fuel" className="text-xs font-bold text-indigo-700 cursor-pointer select-none">Registrar Boleta</label>
                   </div>
@@ -625,7 +747,7 @@ export default function SupervisorsTab({
 
                       <div>
                         <span className="text-[10px] text-slate-700 uppercase font-bold block mb-1">Costo Total Declarado</span>
-                        <div className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50/80 p-2 rounded-lg border border-emerald-150 text-right">
+                        <div className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50/80 p-2 rounded-lg border border-emerald-100 text-right">
                           $ {computedFuelTotal.toLocaleString()} CLP
                         </div>
                       </div>
@@ -634,7 +756,7 @@ export default function SupervisorsTab({
                     {/* Litros y Precio */}
                     <div className="space-y-3">
                       <div>
-                        <label className="text-[10px] text-slate-750 uppercase font-bold block mb-1">Litros Suministrados*</label>
+                        <label className="text-[10px] text-slate-700 uppercase font-bold block mb-1">Litros Suministrados*</label>
                         <input
                           type="number"
                           step="any"
@@ -646,7 +768,7 @@ export default function SupervisorsTab({
                       </div>
 
                       <div>
-                        <label className="text-[10px] text-slate-750 uppercase font-bold block mb-1">Precio Unitario ($/Litro)*</label>
+                        <label className="text-[10px] text-slate-700 uppercase font-bold block mb-1">Precio Unitario ($/Litro)*</label>
                         <input
                           type="number"
                           value={fuelPricePerLitre}
@@ -697,7 +819,7 @@ export default function SupervisorsTab({
                   <div className="flex-1 border border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-center p-6 bg-white/50">
                     <Fuel className="w-7 h-7 text-slate-300 stroke-1.25 mb-1.5" />
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sin transacción de Combustible</p>
-                    <p className="text-[9px] text-slate-450 mt-0.5 max-w-xs">Habilite "Registrar Boleta" para computar los litros y el costo del suministro de esta semana.</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5 max-w-xs">Habilite "Registrar Boleta" para computar los litros y el costo del suministro de esta semana.</p>
                   </div>
                 )}
 
@@ -725,10 +847,10 @@ export default function SupervisorsTab({
       {countMaintenanceNearing > 0 && (
         <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between text-left">
           <div className="flex items-center gap-2.5">
-            <AlertCircle className="w-5 h-5 text-amber-650" />
+            <AlertCircle className="w-5 h-5 text-amber-600" />
             <div>
               <h5 className="font-bold text-xs text-amber-900">Alerta de Próximas Mantenciones ({selectedContract})</h5>
-              <p className="text-[11px] text-amber-850 mt-0.5">
+              <p className="text-[11px] text-amber-800 mt-0.5">
                 Hay {countMaintenanceNearing} vehículos en su contrato que están a menos de 1.000 km de cumplir un múltiplo de 10.000 km. Considere agendar visitas de taller.
               </p>
             </div>
@@ -756,12 +878,12 @@ export default function SupervisorsTab({
 
           <div className="flex items-center gap-2 self-stretch sm:self-auto">
             {isFullyUpdated ? (
-              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-150 px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs">
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs">
                 <Check className="w-3.5 h-3.5" />
                 ¡Flota Reportada con Éxito!
               </span>
             ) : (
-              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-150 px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs">
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs">
                 <AlertTriangle className="w-3.5 h-3.5" />
                 Reportes pendientes
               </span>
@@ -842,7 +964,7 @@ export default function SupervisorsTab({
                         <td className="py-4 px-4 text-right font-mono font-bold text-slate-900">
                           {veh.kilometraje.toLocaleString()} km
                           {nearService && (
-                            <span className="block text-[9px] text-amber-650 font-sans tracking-tight font-medium mt-0.5" title={`Próximo mantenimiento sugerido a los ${nextServiceKm.toLocaleString()} km`}>
+                            <span className="block text-[9px] text-amber-600 font-sans tracking-tight font-medium mt-0.5" title={`Próximo mantenimiento sugerido a los ${nextServiceKm.toLocaleString()} km`}>
                               ⚠️ Mantención en {remainingToNextService.toLocaleString()} km
                             </span>
                           )}
@@ -893,7 +1015,7 @@ export default function SupervisorsTab({
                       {/* Expanded Update Form Drawer */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={7} className="bg-slate-50/60 p-6 text-left border-y border-slate-150">
+                          <td colSpan={7} className="bg-slate-50/60 p-6 text-left border-y border-slate-100">
                             <div className="max-w-3xl mx-auto space-y-6" id={`drawer-form-${veh.ppu}`}>
                               
                               <div className="flex justify-between items-center pb-3 border-b border-slate-200">
@@ -911,7 +1033,7 @@ export default function SupervisorsTab({
                                   <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-3">
                                     <h5 className="font-bold text-xs text-slate-800 uppercase tracking-wide block">1. Registro de Kilometraje (Odómetro)</h5>
                                     <div>
-                                      <label className="text-[10px] text-slate-450 uppercase font-bold block mb-1">Odómetro Actual del Vehículo</label>
+                                      <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Odómetro Actual del Vehículo</label>
                                       <div className="font-mono text-xs font-bold text-slate-500 bg-slate-100 p-2 rounded-lg border border-slate-200">
                                         {veh.kilometraje.toLocaleString()} km
                                       </div>
@@ -951,7 +1073,7 @@ export default function SupervisorsTab({
                                 {/* Section B: Fuel loading */}
                                 <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4">
                                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                                    <h5 className="font-bold text-xs text-slate-850 uppercase tracking-wide flex items-center gap-1.5">
+                                    <h5 className="font-bold text-xs text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
                                       <Fuel className="w-4 h-4 text-indigo-600" />
                                       2. Declarar Carga Combustible
                                     </h5>
@@ -984,8 +1106,8 @@ export default function SupervisorsTab({
                                         </div>
 
                                         <div>
-                                          <label className="text-[10px] text-slate-750 uppercase font-bold block mb-1">Monto Total CLP*</label>
-                                          <div className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-150 text-right">
+                                          <label className="text-[10px] text-slate-700 uppercase font-bold block mb-1">Monto Total CLP*</label>
+                                          <div className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-100 text-right">
                                             $ {computedFuelTotal.toLocaleString()} CLP
                                           </div>
                                         </div>
@@ -999,7 +1121,7 @@ export default function SupervisorsTab({
                                             step="any"
                                             value={fuelLitres}
                                             onChange={(e) => setFuelLitres(e.target.value)}
-                                            className="w-full text-xs font-mono p-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-450"
+                                            className="w-full text-xs font-mono p-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-500"
                                             placeholder="Litros (ej: 45.3)"
                                           />
                                         </div>
@@ -1011,7 +1133,7 @@ export default function SupervisorsTab({
                                               type="number"
                                               value={fuelPricePerLitre}
                                               onChange={(e) => setFuelPricePerLitre(e.target.value)}
-                                              className="w-full text-xs font-mono p-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-450"
+                                              className="w-full text-xs font-mono p-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-500"
                                               placeholder="Precio (CLP/Lt)"
                                             />
                                           </div>
@@ -1020,7 +1142,7 @@ export default function SupervisorsTab({
 
                                       <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                          <label className="text-[10px] text-slate-450 uppercase font-extrabold block mb-1">Fecha Carga</label>
+                                          <label className="text-[10px] text-slate-500 uppercase font-extrabold block mb-1">Fecha Carga</label>
                                           <input
                                             type="date"
                                             value={fuelDate}
@@ -1030,7 +1152,7 @@ export default function SupervisorsTab({
                                         </div>
 
                                         <div>
-                                          <label className="text-[10px] text-slate-450 uppercase font-extrabold block mb-1">Hora Carga</label>
+                                          <label className="text-[10px] text-slate-500 uppercase font-extrabold block mb-1">Hora Carga</label>
                                           <input
                                             type="time"
                                             value={fuelTime}
@@ -1041,7 +1163,7 @@ export default function SupervisorsTab({
                                       </div>
 
                                       <div>
-                                        <label className="text-[10px] text-slate-450 uppercase font-bold block mb-1">Comentarios Combustible</label>
+                                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Comentarios Combustible</label>
                                         <input
                                           type="text"
                                           value={fuelObservations}
@@ -1053,7 +1175,7 @@ export default function SupervisorsTab({
                                     </div>
                                   ) : (
                                     <div className="h-44 bg-slate-50 border border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-center p-6 text-slate-400">
-                                      <Fuel className="w-8 h-8 text-slate-350 stroke-1.25 mb-1.5" />
+                                      <Fuel className="w-8 h-8 text-slate-300 stroke-1.25 mb-1.5" />
                                       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sin boleta de Combustible</p>
                                       <p className="text-[10px] text-slate-400 mt-1 max-w-xs">Habilite la casilla de verificación superior si el conductor cargó combustible Shell/Copec esta semana.</p>
                                     </div>
@@ -1083,8 +1205,8 @@ export default function SupervisorsTab({
 
                               {/* History of logged updates for this PATENT (PPU) */}
                               {vehicleLogs.length > 0 && (
-                                <div className="mt-8 pt-4 border-t border-slate-250">
-                                  <h6 className="font-extrabold text-[10px] uppercase tracking-wider text-slate-450 block mb-2.5">Historial Reciente de Reportes (Patente {veh.ppu})</h6>
+                                <div className="mt-8 pt-4 border-t border-slate-300">
+                                  <h6 className="font-extrabold text-[10px] uppercase tracking-wider text-slate-500 block mb-2.5">Historial Reciente de Reportes (Patente {veh.ppu})</h6>
                                   <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                                     <table className="w-full text-left text-[11px] border-collapse">
                                       <thead>
@@ -1096,12 +1218,13 @@ export default function SupervisorsTab({
                                           <th className="py-2.5 px-3 text-right">Valor Total</th>
                                           <th className="py-2.5 px-3">Comentarios</th>
                                           <th className="py-2.5 px-3">Registrado por</th>
+                                          <th className="py-2.5 px-3 text-center">Acciones</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100 font-medium">
                                         {vehicleLogs.map(log => (
                                           <tr key={log.id} className="hover:bg-slate-50/50">
-                                            <td className="py-2 px-3 font-mono text-[10px] text-slate-500">{log.fecha_actualizacion}</td>
+                                            <td className="py-2 px-3 font-mono text-[10px] text-slate-500">{formatDate(log.fecha_actualizacion)}</td>
                                             <td className="py-2 px-3 font-mono font-bold text-slate-800">{log.odometro.toLocaleString()} km</td>
                                             <td className="py-2 px-3">
                                               {log.combustible ? (
@@ -1122,6 +1245,30 @@ export default function SupervisorsTab({
                                               {log.observaciones || log.combustible?.observaciones || 'Sin observaciones'}
                                             </td>
                                             <td className="py-2 px-3 text-slate-400 font-bold">{log.supervisor_nombre}</td>
+                                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                                              <div className="flex items-center justify-center gap-1.5">
+                                                <button
+                                                  onClick={() => handleEdit(log)}
+                                                  className="p-1 rounded border border-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/50 cursor-pointer"
+                                                  title="Editar Reporte"
+                                                >
+                                                  <Edit3 className="w-3 h-3" />
+                                                </button>
+
+                                                <button
+                                                  onClick={() => handleDeleteLog(log.id)}
+                                                  disabled={currentUser.rol !== 'Administrador'}
+                                                  className={`p-1 rounded border transition-all ${
+                                                    currentUser.rol === 'Administrador' 
+                                                      ? 'border-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer' 
+                                                      : 'opacity-30 cursor-not-allowed'
+                                                  }`}
+                                                  title="Borrar Reporte"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -1180,7 +1327,7 @@ export default function SupervisorsTab({
                     <tr key={log.id} className="hover:bg-slate-50/40">
                       <td className="py-3.5 px-5 font-mono text-[10px] font-semibold text-slate-500">{log.id}</td>
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-950">{log.ppu}</td>
-                      <td className="py-3.5 px-4 font-mono text-slate-500">{log.fecha_actualizacion}</td>
+                      <td className="py-3.5 px-4 font-mono text-slate-500">{formatDate(log.fecha_actualizacion)}</td>
                       <td className="py-3.5 px-4">
                         <span className={`font-extrabold uppercase text-[10px] px-2 py-0.5 rounded ${
                           fuel.proveedor === 'Copec' ? 'bg-orange-50 text-orange-700 border border-orange-100' : 'bg-blue-50 text-blue-700 border border-blue-100'
@@ -1191,7 +1338,7 @@ export default function SupervisorsTab({
                       <td className="py-3.5 px-4 text-right font-mono font-bold">{fuel.litros.toLocaleString()} L</td>
                       <td className="py-3.5 px-4 text-right font-mono text-slate-500">${fuel.valor_combustible.toLocaleString()}</td>
                       <td className="py-3.5 px-4 text-right font-mono font-extrabold text-slate-900">${fuel.monto_total.toLocaleString()}</td>
-                      <td className="py-3.5 px-5 text-slate-450 font-bold">{log.supervisor_nombre}</td>
+                      <td className="py-3.5 px-5 text-slate-500 font-bold">{log.supervisor_nombre}</td>
                     </tr>
                   );
                 })

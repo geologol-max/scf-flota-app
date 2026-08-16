@@ -152,6 +152,10 @@ export async function updateUser(id: string, data: Partial<UserRole>): Promise<v
   await updateDoc(doc(db, COLLECTIONS.USERS, id), data);
 }
 
+export async function deleteUser(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.USERS, id));
+}
+
 // ─── SUPERVISOR LOGS ───────────────────────────────────────────────────────────
 export function subscribeToSupervisorLogs(cb: (logs: SupervisorFleetLog[]) => void): Unsubscribe {
   return subscribeToCollection<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS, cb);
@@ -180,5 +184,25 @@ export async function addWorkshopLog(log: Omit<WorkshopLog, 'id'>): Promise<stri
     _createdAt: serverTimestamp(),
   });
   return ref.id;
+}
+
+export async function updateWorkshopLog(id: string, data: Partial<WorkshopLog>): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.WORKSHOP_LOGS, id), data);
+}
+
+export async function deleteMovementLog(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.MOVEMENTS, id));
+}
+
+export async function deleteIncident(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.INCIDENTS, id));
+}
+
+export async function deleteSupervisorLog(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.SUPERVISOR_LOGS, id));
+}
+
+export async function deleteWorkshopLog(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.WORKSHOP_LOGS, id));
 }
 

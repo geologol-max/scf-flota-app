@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FleetMovementLog, Vehicle, CONTRATO_CENTRO_COSTO, UserPermissions } from '../types';
-import { RefreshCw, ArrowRightLeft, LogIn, LogOut, Search, Plus, Calendar, User, FileSpreadsheet, FileDown } from 'lucide-react';
+import { RefreshCw, ArrowRightLeft, LogIn, LogOut, Search, Plus, Calendar, User, FileSpreadsheet, FileDown, Edit3, Trash2 } from 'lucide-react';
 import { exportMovementsToExcel, triggerMovementsPDFPrint } from '../utils/exporters';
 
 interface MovementsTabProps {
@@ -10,6 +10,7 @@ interface MovementsTabProps {
   onUpdateVehicles: (updatedVehicles: Vehicle[]) => void;
   permissions: UserPermissions;
   currentSimulatedAdminUser: string;
+  currentUserRole: string;
 }
 
 export default function MovementsTab({
@@ -18,16 +19,37 @@ export default function MovementsTab({
   onUpdateMovements,
   onUpdateVehicles,
   permissions,
-  currentSimulatedAdminUser
+  currentSimulatedAdminUser,
+  currentUserRole
 }: MovementsTabProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingMove, setEditingMove] = useState<FleetMovementLog | null>(null);
 
   // Form states
   const [plate, setPlate] = useState('');
   const [movementType, setMovementType] = useState<'Entrada' | 'Salida' | 'Cambio de Contrato'>('Cambio de Contrato');
   const [targetContract, setTargetContract] = useState('AVO');
   const [comments, setComments] = useState('');
+
+  const handleEdit = (m: FleetMovementLog) => {
+    setEditingMove(m);
+    setPlate(m.ppu);
+    setMovementType(m.tipo_movimiento);
+    setTargetContract(m.contrato_destino);
+    setComments(m.comentario);
+    setIsAdding(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (currentUserRole !== 'Administrador') {
+      alert('Permisos insuficientes: Solo el administrador puede borrar registros.');
+      return;
+    }
+    if (confirm('¿Está seguro de eliminar este registro de movimiento?')) {
+      onUpdateMovements(movements.filter(m => m.id !== id));
+    }
+  };
 
   const handleLogMovement = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,18 +72,38 @@ export default function MovementsTab({
     const originalContract = veh.contrato;
     const destContract = movementType === 'Salida' ? 'Fuera de Operación' : targetContract;
 
-    // Create the log
-    const nextMove: FleetMovementLog = {
-      id: `MOV-${Math.floor(Math.random() * 9000 + 1000)}`,
-      codigo_vehiculo: veh.codigo_unico,
-      ppu: veh.ppu,
-      fecha: new Date().toISOString().slice(0, 10),
-      tipo_movimiento: movementType,
-      contrato_origen: movementType === 'Entrada' ? 'No asignado' : originalContract,
-      contrato_destino: destContract,
-      comentario: comments,
-      operador: currentSimulatedAdminUser || 'Administrador Central'
-    };
+    if (editingMove) {
+      const updatedMoves = movements.map(m => {
+        if (m.id === editingMove.id) {
+          return {
+            ...m,
+            ppu: veh.ppu,
+            codigo_vehiculo: veh.codigo_unico,
+            tipo_movimiento: movementType,
+            contrato_destino: destContract,
+            comentario: comments,
+            operador: currentSimulatedAdminUser || 'Administrador Central'
+          };
+        }
+        return m;
+      });
+      onUpdateMovements(updatedMoves);
+      setEditingMove(null);
+    } else {
+      // Create the log
+      const nextMove: FleetMovementLog = {
+        id: `MOV-${Math.floor(Math.random() * 9000 + 1000)}`,
+        codigo_vehiculo: veh.codigo_unico,
+        ppu: veh.ppu,
+        fecha: new Date().toISOString().slice(0, 10),
+        tipo_movimiento: movementType,
+        contrato_origen: movementType === 'Entrada' ? 'No asignado' : originalContract,
+        contrato_destino: destContract,
+        comentario: comments,
+        operador: currentSimulatedAdminUser || 'Administrador Central'
+      };
+      onUpdateMovements([nextMove, ...movements]);
+    }
 
     // Update the actual vehicle contract field & cost center dynamically in real-time!
     const targetCC = CONTRATO_CENTRO_COSTO[destContract] || 100;
@@ -71,7 +113,7 @@ export default function MovementsTab({
           ...v,
           contrato: destContract,
           centro_costo: targetCC,
-          // If we logged a "Salida", maybe mark vehicle as Inactive
+          // If we logged a "Salida", mark vehicle as Inactive
           estado: movementType === 'Salida' ? 'Inactivo' as const : v.estado
         };
       }
@@ -79,7 +121,6 @@ export default function MovementsTab({
     });
 
     onUpdateVehicles(updatedVehicles);
-    onUpdateMovements([nextMove, ...movements]);
     setIsAdding(false);
 
     // Reset Form
@@ -197,7 +238,7 @@ export default function MovementsTab({
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="px-4 py-2 text-xs border border-slate-200 hover:bg-slate-100 text-slate-650 rounded-lg"
+              className="px-4 py-2 text-xs border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-lg"
             >
               Cancelar
             </button>
@@ -263,12 +304,13 @@ export default function MovementsTab({
                 <th className="py-3 px-4">Contrato Destino</th>
                 <th className="py-3 px-4">Operador Responsable</th>
                 <th className="py-3 px-4">Detalle / Justificación</th>
+                <th className="py-3 px-4 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100" id="movements-tbody">
               {filteredMovements.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-400">
+                  <td colSpan={9} className="text-center py-12 text-slate-400">
                     No se registran bitácoras de movimientos de contrato de flota.
                   </td>
                 </tr>
@@ -277,7 +319,7 @@ export default function MovementsTab({
                   <tr key={m.id} className="hover:bg-slate-50/50 transition-colors font-medium text-slate-700">
                     <td className="py-3 px-4 font-mono font-bold text-slate-900">{m.id}</td>
                     <td className="py-3 px-4">
-                      <span className="font-mono bg-slate-100 text-slate-900 font-bold px-1.5 py-0.5 rounded border border-slate-250">
+                      <span className="font-mono bg-slate-100 text-slate-900 font-bold px-1.5 py-0.5 rounded border border-slate-300">
                         {m.ppu}
                       </span>
                     </td>
@@ -299,6 +341,35 @@ export default function MovementsTab({
                       {m.operador}
                     </td>
                     <td className="py-3 px-4 text-slate-500 max-w-sm font-sans whitespace-pre-wrap">{m.comentario}</td>
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleEdit(m)}
+                          disabled={!permissions.movimientos_flota}
+                          className={`p-1.5 rounded-lg border transition-all ${
+                            permissions.movimientos_flota 
+                              ? 'border-slate-100 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/50 cursor-pointer' 
+                              : 'opacity-30 cursor-not-allowed'
+                          }`}
+                          title="Editar Registro"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => handleDelete(m.id)}
+                          disabled={currentUserRole !== 'Administrador'}
+                          className={`p-1.5 rounded-lg border transition-all ${
+                            currentUserRole === 'Administrador' 
+                              ? 'border-slate-100 text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer' 
+                              : 'opacity-30 cursor-not-allowed'
+                          }`}
+                          title="Borrar Registro"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}

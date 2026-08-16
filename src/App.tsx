@@ -25,6 +25,7 @@ import {
   updateIncident,
   updateUser,
   updateSupervisorLog,
+  updateWorkshopLog,
   addVehicle,
   addMaintenanceLog,
   addMovementLog,
@@ -32,7 +33,12 @@ import {
   addUser,
   addSupervisorLog,
   addWorkshopLog,
-  deleteVehicle
+  deleteVehicle,
+  deleteMaintenanceLog,
+  deleteMovementLog,
+  deleteIncident,
+  deleteSupervisorLog,
+  deleteWorkshopLog
 } from './lib/firestore';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
@@ -74,6 +80,28 @@ import {
   Search
 } from 'lucide-react';
 
+// Helper to parse dates in both ISO format and the older Spanish locale string format
+const parseLogDate = (dateStr: string): Date => {
+  let parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  try {
+    const parts = dateStr.split(' ');
+    const dateParts = parts[0].split(/[-/]/);
+    const timeParts = parts[1] ? parts[1].split(':') : ['0', '0'];
+    const day = parseInt(dateParts[0], 10);
+    const month = parseInt(dateParts[1], 10) - 1;
+    const year = parseInt(dateParts[2], 10);
+    const hour = parseInt(timeParts[0], 10);
+    const minute = parseInt(timeParts[1], 10);
+    parsed = new Date(year, month, day, hour, minute);
+  } catch (e) {
+    // Fallback
+  }
+  return parsed;
+};
+
 export default function App() {
   // ── Autenticación Firebase ────────────────────────────────────────────────
   const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
@@ -99,6 +127,9 @@ export default function App() {
   // Rapid PPU lookup search state
   const [searchPpu, setSearchPpu] = useState('');
 
+  // State for automatic editing redirection (selected vehicle PPU to edit)
+  const [vehicleToEditPpu, setVehicleToEditPpu] = useState<string | null>(null);
+
   // ── Suscripciones Firestore (solo cuando el usuario está autenticado) ─────
   useEffect(() => {
     if (!user) return;
@@ -114,26 +145,24 @@ export default function App() {
     const unsubUsers = subscribeToUsers((data) => {
       setUsers(data);
       setCurrentSimulatedUser(prev => {
-        if (prev) return prev;
-        if (data.length > 0) {
-          return data.find(u => u.rol === 'Administrador') ?? data[0];
+        // Encontrar el perfil REAL en la base de datos correspondiente al email logueado
+        const realProfile = data.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+
+        // REGLA DE SEGURIDAD ESTRICTA: Si el usuario logueado NO es administrador (no tiene gestionar_usuarios),
+        // se le bloquea de forma inmutable en su propio perfil real.
+        if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
+          return realProfile;
         }
-        // BD vacía: construir admin temporal desde Firebase Auth
-        return {
-          id: user.uid,
-          nombre: user.displayName ?? user.email?.split('@')[0] ?? 'Administrador',
-          email: user.email ?? '',
-          rol: 'Administrador',
-          activo: true,
-          permisos: {
-            ver_dashboard: true, ver_mapas: true, ver_flota: true,
-            editar_flota: true, ver_documentos: true, cargar_documentos: true,
-            descargar_documentos: true, movimientos_flota: true,
-            incidentes_siniestros: true, mantenimientos: true,
-            gestionar_usuarios: true, descargar_auditoria: true,
-            carga_masiva: true, gestion_supervisores: true,
-          },
-        };
+
+        // Si es administrador o aún no se ha inicializado el perfil activo:
+        if (!prev) {
+          return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0];
+        }
+
+        // Si ya hay un usuario activo (simulado por un administrador),
+        // sincronizar sus datos actualizados desde la base de datos si cambian.
+        const updatedPrev = data.find(u => u.id === prev.id);
+        return updatedPrev ?? prev;
       });
       checkDone();
     });
@@ -161,8 +190,13 @@ export default function App() {
   
 
 
-  // Synchronize current role simulator when edited in user panel settings list
+  // Synchronize current role simulator when edited in user panel settings list (Admin guard)
   const handleSelectSimulatedUser = (u: UserRole) => {
+    const realProfile = users.find(userObj => userObj.email?.toLowerCase() === user?.email?.toLowerCase());
+    if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
+      alert('Acceso denegado: Solo administradores reales pueden cambiar su rol simulado.');
+      return;
+    }
     setCurrentSimulatedUser(u);
   };
 
@@ -195,37 +229,80 @@ export default function App() {
 
   const handleUpdateMaintenanceLogs = async (updated: MaintenanceLog[]) => {
     setMaintenanceLogs(updated);
+    // 1. Detect added
     const added = updated.find(log => !maintenanceLogs.some(old => old.id === log.id));
     if (added) {
       const { id, ...data } = added as any;
       await addMaintenanceLog(data);
+      return;
+    }
+    // 2. Detect deleted
+    for (const oldLog of maintenanceLogs) {
+      if (!updated.some(l => l.id === oldLog.id)) {
+        if (oldLog.id) await deleteMaintenanceLog(oldLog.id);
+      }
+    }
+    // 3. Detect updated
+    for (const newLog of updated) {
+      const oldLog = maintenanceLogs.find(l => l.id === newLog.id);
+      if (oldLog && JSON.stringify(oldLog) !== JSON.stringify(newLog)) {
+        if (newLog.id) {
+          const { id, ...data } = newLog as any;
+          await updateMaintenanceLog(newLog.id, data);
+        }
+      }
     }
   };
 
   const handleUpdateMovements = async (updated: FleetMovementLog[]) => {
     setMovementLogs(updated);
+    // 1. Detect added
     const added = updated.find(m => !movementLogs.some(old => old.id === m.id));
     if (added) {
       const { id, ...data } = added as any;
       await addMovementLog(data);
+      return;
+    }
+    // 2. Detect deleted
+    for (const oldM of movementLogs) {
+      if (!updated.some(m => m.id === oldM.id)) {
+        if (oldM.id) await deleteMovementLog(oldM.id);
+      }
+    }
+    // 3. Detect updated
+    for (const newM of updated) {
+      const oldM = movementLogs.find(m => m.id === newM.id);
+      if (oldM && JSON.stringify(oldM) !== JSON.stringify(newM)) {
+        if (newM.id) {
+          const { id, ...data } = newM as any;
+          await updateMovementLog(newM.id, data);
+        }
+      }
     }
   };
 
   const handleUpdateIncidents = async (updated: Incident[]) => {
     setIncidents(updated);
+    // 1. Detect added
     const added = updated.find(inc => !incidents.some(old => old.id === inc.id));
     if (added) {
       const { id, ...data } = added as any;
       await addIncident(data);
-    } else {
-      for (const newI of updated) {
-        const oldI = incidents.find(i => i.id === newI.id);
-        if (oldI && JSON.stringify(oldI) !== JSON.stringify(newI)) {
-          const docId = (oldI as any).id;
-          if (docId) {
-            const { id, ...dataToUpdate } = newI as any;
-            await updateIncident(docId, dataToUpdate);
-          }
+      return;
+    }
+    // 2. Detect deleted
+    for (const oldInc of incidents) {
+      if (!updated.some(i => i.id === oldInc.id)) {
+        if (oldInc.id) await deleteIncident(oldInc.id);
+      }
+    }
+    // 3. Detect updated
+    for (const newInc of updated) {
+      const oldInc = incidents.find(i => i.id === newInc.id);
+      if (oldInc && JSON.stringify(oldInc) !== JSON.stringify(newInc)) {
+        if (newInc.id) {
+          const { id, ...data } = newInc as any;
+          await updateIncident(newInc.id, data);
         }
       }
     }
@@ -255,8 +332,62 @@ export default function App() {
     await addSupervisorLog(newLog);
   };
 
+  const handleUpdateSupervisorLogs = async (updated: SupervisorFleetLog[]) => {
+    setSupervisorLogs(updated);
+    // 1. Detect added
+    const added = updated.find(log => !supervisorLogs.some(old => old.id === log.id));
+    if (added) {
+      const { id, ...data } = added as any;
+      await addSupervisorLog(data);
+      return;
+    }
+    // 2. Detect deleted
+    for (const oldLog of supervisorLogs) {
+      if (!updated.some(l => l.id === oldLog.id)) {
+        if (oldLog.id) await deleteSupervisorLog(oldLog.id);
+      }
+    }
+    // 3. Detect updated
+    for (const newLog of updated) {
+      const oldLog = supervisorLogs.find(l => l.id === newLog.id);
+      if (oldLog && JSON.stringify(oldLog) !== JSON.stringify(newLog)) {
+        if (newLog.id) {
+          const { id, ...data } = newLog as any;
+          await updateSupervisorLog(newLog.id, data);
+        }
+      }
+    }
+  };
+
   const handleAddWorkshopLog = async (newLog: Omit<WorkshopLog, 'id'>) => {
     await addWorkshopLog(newLog);
+  };
+
+  const handleUpdateWorkshopLogs = async (updated: WorkshopLog[]) => {
+    setWorkshopLogs(updated);
+    // 1. Detect added
+    const added = updated.find(log => !workshopLogs.some(old => old.id === log.id));
+    if (added) {
+      const { id, ...data } = added as any;
+      await addWorkshopLog(data);
+      return;
+    }
+    // 2. Detect deleted
+    for (const oldLog of workshopLogs) {
+      if (!updated.some(l => l.id === oldLog.id)) {
+        if (oldLog.id) await deleteWorkshopLog(oldLog.id);
+      }
+    }
+    // 3. Detect updated
+    for (const newLog of updated) {
+      const oldLog = workshopLogs.find(l => l.id === newLog.id);
+      if (oldLog && JSON.stringify(oldLog) !== JSON.stringify(newLog)) {
+        if (newLog.id) {
+          const { id, ...data } = newLog as any;
+          await updateWorkshopLog(newLog.id, data);
+        }
+      }
+    }
   };
 
   // Simulating live telemetry tick on map vehicles (speeds fluctuate gently to show real-time changes)
@@ -279,6 +410,16 @@ export default function App() {
     return () => clearInterval(ticker);
   }, []);
 
+  // Helper for last maintenance km
+  const getLastMaintenanceKm = (v: Vehicle, logs: MaintenanceLog[]) => {
+    const vehicleLogs = logs.filter(log => log.ppu === v.ppu);
+    if (vehicleLogs.length === 0) {
+      return v.km_ultima_mantencion || 0;
+    }
+    const sortedLogs = [...vehicleLogs].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    return sortedLogs[0].kilometraje;
+  };
+
   const totalVehiclesCount = vehicles.length;
   const activeVehiclesCount = vehicles.filter(v => v.estado === 'Operativo').length;
   const maintenanceCount = vehicles.filter(v => v.estado === 'Mantenimiento').length;
@@ -287,37 +428,54 @@ export default function App() {
   // Compute urgent alerts feed
   const alertsFeed: { id: string; type: 'doc' | 'incident' | 'system'; text: string; time: string; severity: 'high' | 'medium' }[] = [];
   
-  // 1. Doc alerts
+  // 1. Doc and Mileage alerts
   vehicles.forEach(v => {
-    const today = new Date();
-    const pcDiff = Math.ceil((new Date(v.documentos.permiso_circulacion.fecha_vencimiento).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    const rtDiff = Math.ceil((new Date(v.documentos.revision_tecnica.fecha_vencimiento).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const docsToCheck = [
+      { key: 'permiso_circulacion', name: 'Permiso de Circulación' },
+      { key: 'soap', name: 'SOAP' },
+      { key: 'revision_tecnica', name: 'Revisión Técnica' },
+      { key: 'emision_gases', name: 'Emisión de Gases' }
+    ] as const;
 
-    if (pcDiff < 0) {
-      alertsFeed.push({
-        id: `alarm-pc-${v.ppu}`,
-        type: 'doc',
-        text: `Móvil ${v.codigo_unico} (${v.ppu}): Permiso de Circulación EXPIRADO el ${v.documentos.permiso_circulacion.fecha_vencimiento}.`,
-        time: 'Antigüedad crítica',
-        severity: 'high'
-      });
-    } else if (pcDiff <= 30) {
-      alertsFeed.push({
-        id: `alarm-pc-${v.ppu}`,
-        type: 'doc',
-        text: `Móvil ${v.codigo_unico} (${v.ppu}): Próximo a vencer Permiso de Circulación en ${pcDiff} días.`,
-        time: 'Preventiva',
-        severity: 'medium'
-      });
-    }
+    docsToCheck.forEach(docInfo => {
+      const docState = v.documentos[docInfo.key];
+      if (docState && docState.fecha_vencimiento) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const expDate = new Date(docState.fecha_vencimiento);
+        expDate.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-    if (rtDiff < 0) {
+        if (diffDays <= 10) {
+          alertsFeed.push({
+            id: `alarm-${docInfo.key}-${v.ppu}`,
+            type: 'doc',
+            text: `Móvil ${v.codigo_unico} (${v.ppu}): ${docInfo.name} ${diffDays < 0 ? 'EXPIRADO' : 'por vencer'} el ${docState.fecha_vencimiento} (${diffDays < 0 ? `hace ${Math.abs(diffDays)} días` : `vence en ${diffDays} días`}).`,
+            time: diffDays < 0 ? 'Antigüedad crítica' : 'Vencimiento inminente',
+            severity: 'high'
+          });
+        } else if (diffDays <= 30) {
+          alertsFeed.push({
+            id: `alarm-${docInfo.key}-${v.ppu}`,
+            type: 'doc',
+            text: `Móvil ${v.codigo_unico} (${v.ppu}): Próximo a vencer ${docInfo.name} en ${diffDays} días (${docState.fecha_vencimiento}).`,
+            time: 'Preventiva',
+            severity: 'medium'
+          });
+        }
+      }
+    });
+
+    // Mileage alerts: 10,000 km rule since last maintenance
+    const lastMaintKm = getLastMaintenanceKm(v, maintenanceLogs);
+    const kmDiff = v.kilometraje - lastMaintKm;
+    if (kmDiff >= 10000) {
       alertsFeed.push({
-        id: `alarm-rt-${v.ppu}`,
-        type: 'doc',
-        text: `Móvil ${v.codigo_unico} (${v.ppu}): Revisión Técnica EXPIRADA el ${v.documentos.revision_tecnica.fecha_vencimiento}. Transitado vial inhabilitado.`,
-        time: 'Infracción grave',
-        severity: 'high'
+        id: `alarm-km-${v.ppu}`,
+        type: 'system',
+        text: `Móvil ${v.codigo_unico} (${v.ppu}): Requiere mantención preventiva. Han transcurrido ${kmDiff.toLocaleString()} km desde la última mantención (${lastMaintKm.toLocaleString()} km).`,
+        time: 'Mantención Requerida',
+        severity: kmDiff >= 11000 ? 'high' : 'medium'
       });
     }
   });
@@ -360,38 +518,45 @@ export default function App() {
     );
   }
 
+  const realUserProfile = users.find(u => u.email?.toLowerCase() === user?.email?.toLowerCase());
+  const isRealAdmin = realUserProfile?.permisos?.gestionar_usuarios === true;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 selection:bg-slate-900 selection:text-white" id="main-application-container">
       
       {/* Dynamic Top-Simulation-Header Bar */}
-      <div className="bg-slate-900 border-b border-slate-800 text-slate-350 py-2 px-4 z-50">
+      <div className="bg-slate-900 border-b border-slate-800 text-slate-300 py-2 px-4 z-50">
         <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-slate-400" />
-            <span className="font-semibold text-slate-200">Acceso Administrativo</span>
+            <span className="font-semibold text-slate-200">Consola de Control de Flota</span>
             <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded font-mono uppercase">ISO-27001 Ready</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-400">Cambiar perfil:</span>
-            <div className="flex gap-1 overflow-x-auto p-0.5 bg-slate-950 rounded-lg border border-slate-800">
-              {users.map(u => (
-                <button
-                  key={u.id}
-                  onClick={() => handleSelectSimulatedUser(u)}
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all whitespace-nowrap ${
-                    currentSimulatedUser.id === u.id
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  id={`top-role-selector-${u.id}`}
-                >
-                  {u.rol}
-                </button>
-              ))}
-            </div>
-            <div className="h-4 w-px bg-slate-800 hidden md:block" />
-            <span className="italic text-slate-450 text-[11px] hidden md:inline">
+            {isRealAdmin && (
+              <>
+                <span className="text-slate-400">Cambiar perfil:</span>
+                <div className="flex gap-1 overflow-x-auto p-0.5 bg-slate-950 rounded-lg border border-slate-800">
+                  {users.map(u => (
+                    <button
+                      key={u.id}
+                      onClick={() => handleSelectSimulatedUser(u)}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all whitespace-nowrap ${
+                        currentSimulatedUser.id === u.id
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      id={`top-role-selector-${u.id}`}
+                    >
+                      {u.rol}
+                    </button>
+                  ))}
+                </div>
+                <div className="h-4 w-px bg-slate-800 hidden md:block" />
+              </>
+            )}
+            <span className="italic text-slate-500 text-[11px] hidden md:inline">
               Perfil actual: <strong className="text-indigo-400">{currentSimulatedUser.nombre}</strong>
             </span>
           </div>
@@ -422,7 +587,7 @@ export default function App() {
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'dashboard'
                   ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
               id="tab-dashboard"
             >
@@ -436,7 +601,7 @@ export default function App() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   activeTab === 'inventario'
                     ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
                 id="tab-inventario"
               >
@@ -454,7 +619,7 @@ export default function App() {
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                     activeTab === 'mantenimientos'
                       ? 'bg-slate-900 text-white shadow-xs'
-                      : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                   id="tab-mantenimientos"
                 >
@@ -467,7 +632,7 @@ export default function App() {
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                     activeTab === 'recepcion_taller'
                       ? 'bg-slate-900 text-white shadow-xs'
-                      : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                   id="tab-recepcion-taller"
                 >
@@ -480,7 +645,7 @@ export default function App() {
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                     activeTab === 'salida_taller'
                       ? 'bg-slate-900 text-white shadow-xs'
-                      : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                   id="tab-salida-taller"
                 >
@@ -496,7 +661,7 @@ export default function App() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   activeTab === 'movimientos'
                     ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
                 id="tab-movimientos"
               >
@@ -511,7 +676,7 @@ export default function App() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   activeTab === 'incidentes'
                     ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
                 id="tab-incidentes"
               >
@@ -526,7 +691,7 @@ export default function App() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   activeTab === 'supervisores'
                     ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
                 id="tab-supervisores"
               >
@@ -542,11 +707,11 @@ export default function App() {
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'predictivo'
                   ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
               id="tab-predictivo"
             >
-              <BrainCircuit className="w-4 h-4 text-emerald-650 shrink-0" />
+              <BrainCircuit className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>Modelos e IA Predictiva</span>
             </button>
 
@@ -556,7 +721,7 @@ export default function App() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   activeTab === 'usuarios'
                     ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
                 id="tab-usuarios"
               >
@@ -577,7 +742,7 @@ export default function App() {
                 <p className="text-[10px] text-slate-400 font-bold truncate uppercase">{currentSimulatedUser.rol}</p>
               </div>
               <button
-                onClick={() => signOut()}
+                onClick={() => { setCurrentSimulatedUser(null); signOut(); }}
                 title="Cerrar sesión"
                 id="btn-signout"
                 className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
@@ -599,7 +764,7 @@ export default function App() {
                 {activeTab === 'dashboard' ? 'Tablero Control' : activeTab.replace('_', ' ')}
               </h2>
               <div className="flex gap-2">
-                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-650 text-[9px] font-bold rounded border border-emerald-100 font-mono tracking-wider uppercase">
+                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded border border-emerald-100 font-mono tracking-wider uppercase">
                   DATABASE ONLINE
                 </span>
               </div>
@@ -608,11 +773,11 @@ export default function App() {
             {/* Quick stats on large screen headers */}
             <div className="hidden lg:flex items-center gap-6" id="header-counters-telemetry">
               <div className="text-right">
-                <span className="text-[9px] text-slate-450 uppercase font-bold tracking-wider font-mono block">En Ruta</span>
+                <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider font-mono block">En Ruta</span>
                 <div className="text-xs font-bold text-slate-900 font-mono">{activeVehiclesCount} unidades</div>
               </div>
               <div className="text-right">
-                <span className="text-[9px] text-slate-450 uppercase font-bold tracking-wider font-mono block">En Taller</span>
+                <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider font-mono block">En Taller</span>
                 <div className="text-xs font-bold text-slate-900 font-mono">{maintenanceCount} unidades</div>
               </div>
             </div>
@@ -652,7 +817,7 @@ export default function App() {
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 text-left space-y-4 shadow-sm" id="search-ppu-dashboard">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
                         <div className="flex items-center gap-2">
-                          <Search className="w-5 h-5 text-indigo-650" />
+                          <Search className="w-5 h-5 text-indigo-600" />
                           <div>
                             <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Consulta Rápida por Patente (PPU)</h4>
                             <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Busque de forma instantánea cualquier unidad para verificar su contrato, kilometraje y estado operativo.</p>
@@ -666,7 +831,7 @@ export default function App() {
                           placeholder="Ingrese patente (ej. ABCD12)..."
                           value={searchPpu}
                           onChange={(e) => setSearchPpu(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                          className="w-full text-xs p-3 pl-10 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-indigo-650 transition-all font-mono font-bold tracking-widest text-slate-805"
+                          className="w-full text-xs p-3 pl-10 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-indigo-600 transition-all font-mono font-bold tracking-widest text-slate-805"
                           maxLength={6}
                         />
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
@@ -694,30 +859,45 @@ export default function App() {
                                   {matchedVehicle.tipo}
                                 </span>
                               </div>
-                              <p className="text-xs text-slate-550">
+                              <p className="text-xs text-slate-500">
                                 Conductor: <span className="text-slate-800 font-semibold">{matchedVehicle.chofer || 'No asignado'}</span>
                               </p>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-6 shrink-0 text-left">
-                              <div>
-                                <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Contrato</span>
-                                <span className="text-xs font-bold text-slate-800 font-sans block mt-0.5">{matchedVehicle.contrato || 'N/A'}</span>
+                            <div className="flex flex-wrap md:flex-nowrap items-center gap-6">
+                              <div className="grid grid-cols-3 gap-6 text-left">
+                                <div>
+                                  <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Contrato</span>
+                                  <span className="text-xs font-bold text-slate-800 font-sans block mt-0.5">{matchedVehicle.contrato || 'N/A'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Odómetro</span>
+                                  <span className="text-xs font-bold text-slate-800 font-mono block mt-0.5">{matchedVehicle.kilometraje.toLocaleString()} km</span>
+                                </div>
+                                <div>
+                                  <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Estado</span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                                    matchedVehicle.estado === 'Operativo' ? 'bg-emerald-100 text-emerald-800' :
+                                    matchedVehicle.estado === 'Mantenimiento' ? 'bg-amber-100 text-amber-800' :
+                                    matchedVehicle.estado === 'Siniestrado' ? 'bg-rose-100 text-rose-800' :
+                                    'bg-slate-100 text-slate-800'
+                                  }`}>
+                                    {matchedVehicle.estado}
+                                  </span>
+                                </div>
                               </div>
-                              <div>
-                                <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Odómetro</span>
-                                <span className="text-xs font-bold text-slate-800 font-mono block mt-0.5">{matchedVehicle.kilometraje.toLocaleString()} km</span>
-                              </div>
-                              <div>
-                                <span className="text-[9px] font-extrabold text-slate-405 uppercase block tracking-wider">Estado</span>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
-                                  matchedVehicle.estado === 'Operativo' ? 'bg-emerald-100 text-emerald-800' :
-                                  matchedVehicle.estado === 'Mantenimiento' ? 'bg-amber-100 text-amber-800' :
-                                  matchedVehicle.estado === 'Siniestrado' ? 'bg-rose-100 text-rose-800' :
-                                  'bg-slate-100 text-slate-800'
-                                }`}>
-                                  {matchedVehicle.estado}
-                                </span>
+
+                              <div className="border-t md:border-t-0 md:border-l border-slate-200 pt-3 md:pt-0 md:pl-6">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setVehicleToEditPpu(matchedVehicle.ppu);
+                                    setActiveTab('inventario');
+                                  }}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                                >
+                                  Editar Vehículo
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -772,7 +952,7 @@ export default function App() {
                           <>
                             <button
                               onClick={() => exportToExcel(vehicles)}
-                              className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs py-2 px-3 border border-slate-250 rounded-lg inline-flex items-center gap-1.5 transition-all flex-1 sm:flex-initial"
+                              className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs py-2 px-3 border border-slate-300 rounded-lg inline-flex items-center gap-1.5 transition-all flex-1 sm:flex-initial"
                             >
                               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                               Planilla Excel
@@ -827,20 +1007,20 @@ export default function App() {
                           const totalKm = vehicles.reduce((sum, v) => sum + (v.kilometraje || 0), 0) || 1;
                           const percentage = Math.min(100, Math.round((info.km / totalKm) * 100));
                           return (
-                            <div key={contrato} className="bg-slate-50 p-4 rounded-xl border border-slate-150 flex flex-col justify-between hover:border-slate-300 transition-all">
+                            <div key={contrato} className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col justify-between hover:border-slate-300 transition-all">
                               <div>
                                 <div className="flex justify-between items-center mb-1">
                                   <span className="text-xs font-bold text-slate-800">{contrato}</span>
-                                  <span className="text-[9px] bg-slate-200 text-slate-650 px-1.5 py-0.5 rounded font-mono font-bold">
+                                  <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">
                                     {info.count} {info.count === 1 ? 'unidad' : 'unidades'}
                                   </span>
                                 </div>
-                                <div className="font-mono font-extrabold text-base text-indigo-650 mt-1">
+                                <div className="font-mono font-extrabold text-base text-indigo-600 mt-1">
                                   {info.km.toLocaleString()} <span className="text-[10px] text-slate-500 font-sans font-normal">km</span>
                                 </div>
                               </div>
                               <div className="mt-3">
-                                <div className="flex justify-between text-[9px] text-slate-450 mb-1 font-mono">
+                                <div className="flex justify-between text-[9px] text-slate-500 mb-1 font-mono">
                                   <span>Distribución km</span>
                                   <span>{percentage}%</span>
                                 </div>
@@ -858,57 +1038,57 @@ export default function App() {
                     </div>
 
                     {/* Dashboard Widget: Control de Supervisores (Rendimiento y Plazos) */}
-                    {currentSimulatedUser.permisos.gestion_supervisores && (
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 text-left space-y-4 shadow-sm" id="widget-control-supervisores">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                          <div className="flex items-center gap-2">
-                            <Users className="w-5 h-5 text-indigo-600 animate-pulse" />
-                            <div>
-                              <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Control de Supervisores (KPI Combustible)</h4>
-                              <p className="text-[10px] text-slate-500 mt-0.5">Odómetros y rendimientos de combustible actualizados semanalmente</p>
-                            </div>
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 text-left space-y-4 shadow-sm" id="widget-control-supervisores">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-5 h-5 text-indigo-600 animate-pulse" />
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Control de Supervisores (KPI Combustible)</h4>
+                            <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Odómetros y rendimientos de combustible actualizados semanalmente</p>
                           </div>
+                        </div>
+                        {currentSimulatedUser.permisos.gestion_supervisores && (
                           <button
                             onClick={() => setActiveTab('supervisores')}
                             className="bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                           >
                             Ir a Panel de Supervisores →
                           </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Reportes Recientes</span>
+                          <div className="font-mono font-extrabold text-lg text-slate-900 mt-1">
+                            {vehicles.filter(v => 
+                              supervisorLogs.some(log => log.ppu === v.ppu && parseLogDate(log.fecha_actualizacion).getTime() >= (Date.now() - 7 * 24 * 60 * 60 * 1000))
+                            ).length} / {vehicles.length}
+                          </div>
+                          <span className="text-[9px] text-slate-500 font-medium font-sans">Patentes con odómetro actualizado</span>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-150">
-                            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Reportes Recientes</span>
-                            <div className="font-mono font-extrabold text-lg text-slate-900 mt-1">
-                              {vehicles.filter(v => 
-                                supervisorLogs.some(log => log.ppu === v.ppu && new Date(log.fecha_actualizacion).getTime() >= (Date.now() - 7 * 24 * 60 * 60 * 1000))
-                              ).length} / {vehicles.length}
-                            </div>
-                            <span className="text-[9px] text-slate-500 font-medium font-sans">Patentes con odómetro actualizado</span>
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block flex items-center gap-0.5">
+                            <Fuel className="w-3 h-3 text-orange-500" /> COPEC Consolidado
+                          </span>
+                          <div className="font-mono font-extrabold text-base text-orange-600 mt-1">
+                            ${supervisorLogs.reduce((sum, l) => l.combustible?.proveedor?.toLowerCase() === 'copec' ? sum + Number(l.combustible.monto_total) : sum, 0).toLocaleString()}
                           </div>
+                          <span className="text-[9px] text-slate-500 font-sans block">Total declaraciones</span>
+                        </div>
 
-                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-150">
-                            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block flex items-center gap-0.5">
-                              <Fuel className="w-3 h-3 text-orange-500" /> COPEC Consolidado
-                            </span>
-                            <div className="font-mono font-extrabold text-base text-orange-600 mt-1">
-                              ${supervisorLogs.reduce((sum, l) => l.combustible?.proveedor === 'Copec' ? sum + l.combustible.monto_total : sum, 0).toLocaleString()}
-                            </div>
-                            <span className="text-[9px] text-slate-500 font-sans block">Total declaraciones</span>
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block flex items-center gap-0.5">
+                            <Fuel className="w-3 h-3 text-blue-500" /> SHELL Consolidado
+                          </span>
+                          <div className="font-mono font-extrabold text-base text-blue-600 mt-1">
+                            ${supervisorLogs.reduce((sum, l) => l.combustible?.proveedor?.toLowerCase() === 'shell' ? sum + Number(l.combustible.monto_total) : sum, 0).toLocaleString()}
                           </div>
-
-                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-150">
-                            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block flex items-center gap-0.5">
-                              <Fuel className="w-3 h-3 text-blue-500" /> SHELL Consolidado
-                            </span>
-                            <div className="font-mono font-extrabold text-base text-blue-650 mt-1">
-                              ${supervisorLogs.reduce((sum, l) => l.combustible?.proveedor === 'Shell' ? sum + l.combustible.monto_total : sum, 0).toLocaleString()}
-                            </div>
-                            <span className="text-[9px] text-slate-500 font-sans block">Total declaraciones</span>
-                          </div>
+                          <span className="text-[9px] text-slate-500 font-sans block">Total declaraciones</span>
                         </div>
                       </div>
-                    )}
+                    </div>
 
                   </div>
 
@@ -939,7 +1119,7 @@ export default function App() {
                               }`}
                             >
                               <div className="mt-0.5">
-                                <AlertTriangle className={`w-4 h-4 ${alarm.severity === 'high' ? 'text-rose-600' : 'text-amber-650'}`} />
+                                <AlertTriangle className={`w-4 h-4 ${alarm.severity === 'high' ? 'text-rose-600' : 'text-amber-600'}`} />
                               </div>
                               <div className="text-left flex-1">
                                 <p className={`text-xs font-semibold leading-tight ${alarm.severity === 'high' ? 'text-rose-950 font-sans' : 'text-slate-800'}`}>
@@ -955,7 +1135,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-150 text-[10px] text-slate-500 mt-4 leading-relaxed">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-[10px] text-slate-500 mt-4 leading-relaxed">
                       <strong>Protocolo SOAP & RT Chileno:</strong> Las alertas se desencadenan automáticamente cuando un vehículo carece del documento en formato digital PDF, o bien su vigencia caducó respecto a la fecha actual del sistema.
                     </div>
                   </div>
@@ -973,6 +1153,10 @@ export default function App() {
                 permissions={currentSimulatedUser.permisos}
                 customCategories={customCategories}
                 onCreateCategory={(newCat) => setCustomCategories([...customCategories, newCat])}
+                maintenanceLogs={maintenanceLogs}
+                vehicleToEditPpu={vehicleToEditPpu}
+                onClearVehicleToEdit={() => setVehicleToEditPpu(null)}
+                currentUserRole={currentSimulatedUser.rol}
               />
             )}
 
@@ -984,6 +1168,7 @@ export default function App() {
                   vehicles={vehicles}
                   onUpdateLogs={handleUpdateMaintenanceLogs}
                   permissions={currentSimulatedUser.permisos}
+                  currentUserRole={currentSimulatedUser.rol}
                 />
               </WithPermission>
             )}
@@ -997,6 +1182,7 @@ export default function App() {
                   onUpdateVehicles={handleUpdateVehicles}
                   logs={workshopLogs}
                   onAddWorkshopLog={handleAddWorkshopLog}
+                  onUpdateLogs={handleUpdateWorkshopLogs}
                   currentUser={currentSimulatedUser}
                 />
               </WithPermission>
@@ -1011,6 +1197,7 @@ export default function App() {
                   onUpdateVehicles={handleUpdateVehicles}
                   logs={workshopLogs}
                   onAddWorkshopLog={handleAddWorkshopLog}
+                  onUpdateLogs={handleUpdateWorkshopLogs}
                   currentUser={currentSimulatedUser}
                 />
               </WithPermission>
@@ -1026,6 +1213,7 @@ export default function App() {
                   onUpdateVehicles={handleUpdateVehicles}
                   permissions={currentSimulatedUser.permisos}
                   currentSimulatedAdminUser={currentSimulatedUser.nombre}
+                  currentUserRole={currentSimulatedUser.rol}
                 />
               </WithPermission>
             )}
@@ -1039,6 +1227,7 @@ export default function App() {
                   onUpdateIncidents={handleUpdateIncidents}
                   onUpdateVehicles={handleUpdateVehicles}
                   permissions={currentSimulatedUser.permisos}
+                  currentUserRole={currentSimulatedUser.rol}
                 />
               </WithPermission>
             )}
@@ -1072,6 +1261,7 @@ export default function App() {
                   currentUser={currentSimulatedUser}
                   logs={supervisorLogs}
                   onAddSupervisorLog={handleAddSupervisorLog}
+                  onUpdateLogs={handleUpdateSupervisorLogs}
                 />
               </WithPermission>
             )}
@@ -1085,9 +1275,9 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p>© 2026 Sistema de Control de Flota - Version de Prueba para Nera Chile SPA</p>
           <div className="flex gap-4">
-            <span className="hover:text-slate-650 transition">Auditoría Interna</span>
-            <span className="hover:text-slate-650 transition">Soporte Operacional</span>
-            <span className="hover:text-slate-650 transition">Cifrado de Extremo a Extremo (AES-256)</span>
+            <span className="hover:text-slate-600 transition">Auditoría Interna</span>
+            <span className="hover:text-slate-600 transition">Soporte Operacional</span>
+            <span className="hover:text-slate-600 transition">Cifrado de Extremo a Extremo (AES-256)</span>
           </div>
         </div>
       </footer>

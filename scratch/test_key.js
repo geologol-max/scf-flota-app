@@ -1,0 +1,37 @@
+import crypto from 'crypto';
+
+const rawKey = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDLbLQcs/w/KBja
+ys1gOfgyJbnfASNuKCTV0zsAVTvtTC7WVCH7vGEToSiECcp3RKDzoVe0MQ+ryPsM
+bJHB8fpOwtm1LitbNKYwASTALzLXSEBKEtuEubq5tD3XHMf0YGIoxrmR9AKcK8jj
+fg8W3ki7kSA47JfY99OTVPtnkers11AP2HYJG18GABB5E+uq032CX1deu0JPBJSf
+5mLjLqMqBwbZ8tk53E0CH/W9KC84zXtu579Kmo+CmV0FP67B8fdplqzI3wkYiFAi
+To8EP+zjBKRXtYNS6DFc2G9tovWGNfSiJjFSg5KjQ4X1ahtjO9LrKQCl/A3EF+n5
+0lmKi7oPAgMBAAECggEAQ6JFMgPfeqoctWXXKcasUBP9+/iXbJEZSiR8SeyMy6VY
+Lzdyww1LY2jiHSBaOhRNxSLgE496S927JlLUlVycIeKj2pranGzhUjWXH/SxXSVv
+BpHFfZf4zrRwGRy/GG+RQ0hrO20bDwx5srVfU/Wczgv+4B49kEw5gpMvMSyxJIQL
+MzjlTviV/mx0rxOxk+Bkjem+z74pSzp9g93dFAv8CjX+j2a0tNzELDhWjL4ZU3VG
+BN4MkkRUErY0Ul6nZU9tAI5fxO/eZhbjP9kcappqFll9yy+WWwEThY1ZYSco8F24
+65TpVpsAjqn8x73x8qadUuQaofVxXxWImhOcPJXsxQKBgQD+72Tl6o2CQuf9f429
+eU8l05tw8ZT+KgPONDB7R25vLqioa2Ct+jUspqpm8eGTwEeMqE+r/IQwqLXcD4z7
++dgQsHJoxz6FAgpH3fuH7ZT+0QE0h+De2cfQ1kHOpaE092Xj+oF1leky6EmhYA0k
+Pd5whPPTZ2pqV83UtgOGCcyf+wKBgQDMRjp+L7hpNPU52dzU7OYIzz2/+odaDqvP
+mST+9cxuuTd7rQS64e1iOJg2qN4l6u/+vZ3/XRd9EAkZdUE7Pn7m3srFeWd4wbQy
+MIwBk2sPtbtSMmwB4vjWE53KLBUc8y/BZ+EEa5vbtpllHMVi5hRKJlMYP6SdWTvm
+bVTbwo+t/QKBgQDlfbOilUbV4EzekpiR3EY3kwn23kJ1mnTah3itQVxUkfgZxK+/
+beG4VEBJc6zRSOIf6NPvyt1kwDsV4pnTqtGqFGypjdLmATQoBdiMQH9D8/nVxAvW
+EM4jXPzYfZllCOCcHcG0jELlJN5DeyfZXCiFuemUgR/2oxwTQ9ZgLyoZSQKBgBea
+weWU9BVMJk4iC6+bFFXORM9rTrqsWVQq2SiRFKdyxaOH8bT6qGiiK4ydZNYy2Lqy
+BJDem/k6oiKL9xa2eQmKkxnQlpFQqNbn3zXLaCKvmE6+PtbU+HYcXC5he6sVut35
+d/n/yUnRRtZ1RaXQ+mU7Gn0B1a7NAev1lEm0qM+tAoGBALbEhOgSSUn/9OYd8JrW
+o2hWdwjWUl8iiJjj3cn0Q/dEDgKHfFEUHMsEwEEldB4/9N9kXf7ocq+Yh9AH/vYN
+tpzRZhBxd4DTmmwohcbExAdwrJR7Evf19ofPzfPsk3gf9w8uCGt6T3itVUPkBQXY
+fbZyaHhM24HYjrmEHJHgGvsu
+-----END PRIVATE KEY-----`;
+
+try {
+  const parsed = crypto.createPrivateKey(rawKey);
+  console.log('KEY IS VALID!');
+} catch (e) {
+  console.error('KEY PARSE ERROR:', e);
+}

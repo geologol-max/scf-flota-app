@@ -570,12 +570,16 @@ export default function App() {
         <aside className="w-full md:w-64 shrink-0 bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col text-left" id="sidebar-panel">
           
           {/* Logo Brand Header */}
-          <div className="p-6 border-b border-slate-100">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2 font-display">
-              <Truck className="w-5 h-5 text-slate-950" />
-              <span>SCF <span className="font-normal text-slate-500">Flota</span></span>
-            </h1>
-            <p className="text-[9px] text-slate-400 font-mono tracking-wider font-bold mt-1 uppercase">Consola de Control</p>
+          <div className="p-5 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <img src="/nera-logo.png" alt="NERA Chile Logo" className="w-10 h-10 object-contain shrink-0" />
+              <div>
+                <h1 className="text-base font-extrabold text-slate-900 tracking-tight leading-none font-display">
+                  NERA <span className="text-red-600 font-bold">CHILE</span>
+                </h1>
+                <p className="text-[10px] text-slate-500 font-medium tracking-tight mt-0.5">SCF Flota • Consola</p>
+              </div>
+            </div>
           </div>
 
           {/* Navigation Items */}

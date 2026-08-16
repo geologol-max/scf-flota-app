@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Vehicle, UserRole, WorkshopLog, WorkshopChecklist } from '../types';
 import { Wrench, ClipboardCheck, Calendar, User, Search, Plus, Check, FileText, Printer, ArrowRightLeft, Edit3, Trash2 } from 'lucide-react';
+import { NERA_LOGO_BASE64 } from '../utils/neraLogoBase64';
 
 interface WorkshopTabProps {
   mode: 'recepcion' | 'salida';
@@ -349,9 +350,12 @@ export default function WorkshopTab({
         </head>
         <body>
           <div class="header">
-            <div>
-              <h1 class="title">SCF FLOTA - CONTROL LOGÍSTICO</h1>
-              <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Acta Oficial de Control y Entrega Técnica</div>
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <img src="${NERA_LOGO_BASE64}" style="width: 52px; height: 52px; object-fit: contain;" />
+              <div>
+                <h1 class="title">NERA CHILE - CONTROL LOGÍSTICO</h1>
+                <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Acta Oficial de Control y Entrega Técnica</div>
+              </div>
             </div>
             <div class="badge-ot">REGISTRO ${log.id}</div>
           </div>
@@ -547,9 +551,12 @@ export default function WorkshopTab({
         <body>
           <div id="acta-content">
             <div class="header">
-              <div>
-                <h1 class="title">SCF FLOTA - CONTROL LOGÍSTICO</h1>
-                <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Acta Oficial de ${tipoLabel} de Taller</div>
+              <div style="display: flex; align-items: center; gap: 14px;">
+                <img src="${NERA_LOGO_BASE64}" style="width: 52px; height: 52px; object-fit: contain;" />
+                <div>
+                  <h1 class="title">NERA CHILE - CONTROL LOGÍSTICO</h1>
+                  <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Acta Oficial de ${tipoLabel} de Taller</div>
+                </div>
               </div>
               <div class="badge-ot">REGISTRO ${log.id}</div>
             </div>

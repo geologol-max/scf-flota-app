@@ -40,7 +40,8 @@ export function useAuth(): UseAuthReturn {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: unknown) {
-      const firebaseError = err as { code?: string };
+      console.error('Firebase Auth Error:', err);
+      const firebaseError = err as { code?: string; message?: string };
       // Mensajes de error amigables en español
       const errorMessages: Record<string, string> = {
         'auth/user-not-found': 'No existe un usuario con ese correo.',
@@ -49,9 +50,11 @@ export function useAuth(): UseAuthReturn {
         'auth/too-many-requests': 'Demasiados intentos fallidos. Intenta más tarde.',
         'auth/invalid-credential': 'Credenciales inválidas. Verifica tu correo y contraseña.',
         'auth/network-request-failed': 'Error de conexión. Verifica tu internet.',
+        'auth/unauthorized-domain': 'El dominio del sitio no está autorizado en Firebase Console.',
       };
       const code = firebaseError.code ?? '';
-      setError(errorMessages[code] ?? 'Error al iniciar sesión. Intenta nuevamente.');
+      const fallbackMsg = code ? `Error al iniciar sesión (${code}). Intenta nuevamente.` : 'Error al iniciar sesión. Intenta nuevamente.';
+      setError(errorMessages[code] ?? fallbackMsg);
       setLoading(false);
     }
   };

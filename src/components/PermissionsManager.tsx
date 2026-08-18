@@ -248,6 +248,49 @@ export default function PermissionsManager({
     }
   };
 
+  // ── Update existing user password via Admin API ─────────────────────────────
+
+  const handleUpdatePassword = async (userEmail: string, userName: string) => {
+    if (!currentUserRole.permisos.gestionar_usuarios) {
+      alert('Su cuenta actual no cuenta con autorización para modificar contraseñas de otros usuarios.');
+      return;
+    }
+
+    const newPass = window.prompt(`Ingrese la nueva contraseña de acceso para ${userName} (${userEmail}):\n(Debe tener al menos 6 caracteres)`);
+    if (newPass === null) return;
+    if (newPass.trim().length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+
+    try {
+      const token = await auth?.currentUser?.getIdToken(true);
+      if (!token) {
+        throw new Error('No se pudo verificar la sesión del administrador actual. Por favor recarga e inicia sesión.');
+      }
+
+      const res = await fetch('/api/update-user-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ targetEmail: userEmail, newPassword: newPass.trim() }),
+      });
+
+      const data = await safeParseJSON(res);
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Error al actualizar la contraseña en el servidor.');
+      }
+
+      alert(`✅ ¡La contraseña para "${userName}" (${userEmail}) fue actualizada con éxito!`);
+    } catch (err: any) {
+      console.error('handleUpdatePassword error:', err);
+      alert(`Error al actualizar contraseña: ${err.message}`);
+    }
+  };
+
   // ── Permission toggle ───────────────────────────────────────────────────────
 
   const handleTogglePermission = (userId: string, key: keyof UserPermissions) => {
@@ -664,6 +707,17 @@ export default function PermissionsManager({
                       >
                         {u.activo ? 'Activo' : 'Suspendido'}
                       </button>
+
+                      {currentUserRole.permisos.gestionar_usuarios && (
+                        <button
+                          onClick={() => handleUpdatePassword(u.email, u.nombre)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg font-bold border border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all cursor-pointer inline-flex items-center gap-1"
+                          title="Actualizar contraseña de este usuario"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Cambiar Clave</span>
+                        </button>
+                      )}
 
                       {u.email !== (auth?.currentUser?.email || '') && (
                         <button

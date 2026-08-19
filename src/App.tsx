@@ -161,10 +161,28 @@ export default function App() {
       setWorkshopLogs(workshopLogs);
       setSupervisorLogs(supervisorLogs);
       setUsers(users);
+      // Si el email del usuario logueado no existe en la colección users,
+      // se crea un perfil temporal de Administrador con acceso completo
+      // para evitar quedar bloqueado en la pantalla de carga.
+      const FULL_ADMIN_PERMISOS = {
+        ver_dashboard: true, ver_mapas: true, ver_flota: true, editar_flota: true,
+        ver_documentos: true, cargar_documentos: true, descargar_documentos: true,
+        movimientos_flota: true, incidentes_siniestros: true, mantenimientos: true,
+        gestionar_usuarios: true, descargar_auditoria: true, carga_masiva: true,
+        gestion_supervisores: true,
+      };
+      const fallbackProfile: UserRole = {
+        id: user.uid,
+        nombre: user.email?.split('@')[0] ?? 'Usuario',
+        email: user.email ?? '',
+        rol: 'Administrador',
+        activo: true,
+        permisos: FULL_ADMIN_PERMISOS,
+      };
       setCurrentSimulatedUser(() => {
         const realProfile = users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
         if (realProfile && !realProfile.permisos?.gestionar_usuarios) return realProfile;
-        return realProfile ?? users.find(u => u.rol === 'Administrador') ?? users[0] ?? null;
+        return realProfile ?? users.find(u => u.rol === 'Administrador') ?? users[0] ?? fallbackProfile;
       });
       setDataLoading(false); // ← la pantalla de carga desaparece aquí
     };

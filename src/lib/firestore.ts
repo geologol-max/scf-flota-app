@@ -50,10 +50,20 @@ export function subscribeToCollection<T>(
   callback: (data: T[]) => void
 ): Unsubscribe {
   const q = query(collection(db, collectionName));
-  return onSnapshot(q, (snap: QuerySnapshot<DocumentData>) => {
-    const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as T));
-    callback(data);
-  });
+  return onSnapshot(
+    q,
+    (snap: QuerySnapshot<DocumentData>) => {
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as T));
+      callback(data);
+    },
+    (error) => {
+      // Si Firestore rechaza la lectura (reglas de seguridad, permisos, etc.),
+      // invocamos el callback con array vacío para que el contador de carga avance
+      // y la app no quede bloqueada indefinidamente.
+      console.error(`Error en suscripción a colección '${collectionName}':`, error.code, error.message);
+      callback([] as T[]);
+    }
+  );
 }
 
 // ─── VEHICLES ──────────────────────────────────────────────────────────────────

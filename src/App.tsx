@@ -136,7 +136,24 @@ export default function App() {
 
     let resolved = 0;
     const total = 7;
-    const checkDone = () => { resolved++; if (resolved >= total) setDataLoading(false); };
+    let done = false;
+    const checkDone = () => {
+      resolved++;
+      if (!done && resolved >= total) {
+        done = true;
+        setDataLoading(false);
+      }
+    };
+
+    // Timeout de seguridad: si alguna colección nunca responde (reglas bloqueadas, red, etc.)
+    // mostramos la app igual después de 8 segundos para no dejar al usuario bloqueado.
+    const timeout = setTimeout(() => {
+      if (!done) {
+        done = true;
+        console.warn('Timeout de carga de Firestore alcanzado. Mostrando app con datos disponibles.');
+        setDataLoading(false);
+      }
+    }, 8000);
 
     const unsubVehicles = subscribeToVehicles((data) => { setVehicles(data); checkDone(); });
     const unsubMaint = subscribeToMaintenance((data) => { setMaintenanceLogs(data); checkDone(); });
@@ -170,6 +187,7 @@ export default function App() {
     const unsubWorkshop = subscribeToWorkshopLogs((data) => { setWorkshopLogs(data); checkDone(); });
 
     return () => {
+      clearTimeout(timeout);
       unsubVehicles();
       unsubMaint();
       unsubMov();

@@ -142,63 +142,67 @@ export default function App() {
 
     let cancelled = false;
 
-    // FASE 1: Carga inicial instantánea usando HTTP (getDocs).
-    // Esto no depende de WebSockets y carga mucho más rápido.
-    const initialLoad = async () => {
-      const [vehicles, maintenance, movements, incidents, users, supervisorLogs, workshopLogs] =
-        await Promise.all([
-          getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
-          getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
-          getCollectionOnce<FleetMovementLog>(COLLECTIONS.MOVEMENTS),
-          getCollectionOnce<Incident>(COLLECTIONS.INCIDENTS),
-          getCollectionOnce<UserRole>(COLLECTIONS.USERS),
-          getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
-          getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
-        ]);
-
-      if (cancelled) return;
-
-      setVehicles(vehicles);
-      setMaintenanceLogs(maintenance);
-      setMovementLogs(movements);
-      setIncidents(incidents);
-      setWorkshopLogs(workshopLogs);
-      setSupervisorLogs(supervisorLogs);
-      setUsers(users);
-      // Si el email del usuario logueado no existe en la colección users,
-      // se crea un perfil temporal de Administrador con acceso completo
-      // para evitar quedar bloqueado en la pantalla de carga.
-      const FULL_ADMIN_PERMISOS = {
-        ver_dashboard: true, ver_mapas: true, ver_flota: true, editar_flota: true,
-        ver_documentos: true, cargar_documentos: true, descargar_documentos: true,
-        movimientos_flota: true, incidentes_siniestros: true, mantenimientos: true,
-        gestionar_usuarios: true, descargar_auditoria: true, carga_masiva: true,
-        gestion_supervisores: true,
-      };
-      const fallbackProfile: UserRole = {
-        id: user.uid,
-        nombre: user.email?.split('@')[0] ?? 'Usuario',
-        email: user.email ?? '',
-        rol: 'Administrador',
-        activo: true,
-        permisos: FULL_ADMIN_PERMISOS,
-      };
-      setCurrentSimulatedUser(() => {
-        const realProfile = users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-        if (realProfile && !realProfile.permisos?.gestionar_usuarios) return realProfile;
-        return realProfile ?? users.find(u => u.rol === 'Administrador') ?? users[0] ?? fallbackProfile;
-      });
-      hasEnteredApp.current = true; // ← marca permanente: el usuario ya ingresó
-      setDataLoading(false);        // ← la pantalla de carga desaparece aquí
+    // Permisos de administrador completo (fallback si el email no está en Firestore users)
+    const FULL_ADMIN_PERMISOS = {
+      ver_dashboard: true, ver_mapas: true, ver_flota: true, editar_flota: true,
+      ver_documentos: true, cargar_documentos: true, descargar_documentos: true,
+      movimientos_flota: true, incidentes_siniestros: true, mantenimientos: true,
+      gestionar_usuarios: true, descargar_auditoria: true, carga_masiva: true,
+      gestion_supervisores: true,
+    };
+    const fallbackProfile: UserRole = {
+      id: user.uid,
+      nombre: user.email?.split('@')[0] ?? 'Usuario',
+      email: user.email ?? '',
+      rol: 'Administrador',
+      activo: true,
+      permisos: FULL_ADMIN_PERMISOS,
     };
 
-    initialLoad();
+    let resolved = 0;
+    const total = 7;
+    const checkDone = () => {
+      resolved++;
+      if (resolved >= total && !hasEnteredApp.current) {
+        hasEnteredApp.current = true;
+        setDataLoading(false);
+      }
+    };
 
-    // FASE 2: Suscripciones en tiempo real (actualizan datos después de la carga inicial).
-    const unsubVehicles = subscribeToVehicles((data) => { if (!cancelled) setVehicles(data); });
-    const unsubMaint = subscribeToMaintenance((data) => { if (!cancelled) setMaintenanceLogs(data); });
-    const unsubMov = subscribeToMovements((data) => { if (!cancelled) setMovementLogs(data); });
-    const unsubInc = subscribeToIncidents((data) => { if (!cancelled) setIncidents(data); });
+    // Timeout de seguridad: si onSnapshot tarda más de 10s (WebSocket bloqueado),
+    // muestra la app de todos modos con los datos disponibles hasta ese momento.
+    const timeout = setTimeout(() => {
+      if (!hasEnteredApp.current) {
+        console.warn('Timeout Firestore: mostrando app con datos disponibles.');
+        hasEnteredApp.current = true;
+        setDataLoading(false);
+        // Garantizar currentSimulatedUser no sea null
+        setCurrentSimulatedUser(prev => prev ?? fallbackProfile);
+      }
+    }, 10000);
+
+    // onSnapshot sirve datos desde la caché local (IndexedDB) inmediatamente,
+    // incluso sin conexión de red, lo que evita pantallas de carga prolongadas.
+    const unsubVehicles = subscribeToVehicles((data) => {
+      if (cancelled) return;
+      setVehicles(data);
+      checkDone();
+    });
+    const unsubMaint = subscribeToMaintenance((data) => {
+      if (cancelled) return;
+      setMaintenanceLogs(data);
+      checkDone();
+    });
+    const unsubMov = subscribeToMovements((data) => {
+      if (cancelled) return;
+      setMovementLogs(data);
+      checkDone();
+    });
+    const unsubInc = subscribeToIncidents((data) => {
+      if (cancelled) return;
+      setIncidents(data);
+      checkDone();
+    });
     const unsubUsers = subscribeToUsers((data) => {
       if (cancelled) return;
       setUsers(data);
@@ -213,8 +217,8 @@ export default function App() {
         }
 
         // Si es administrador o aún no se ha inicializado el perfil activo:
-        if (!prev) {
-          return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0];
+        if (!prev || prev.id === user.uid) {
+          return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0] ?? fallbackProfile;
         }
 
         // Si ya hay un usuario activo (simulado por un administrador),
@@ -222,12 +226,22 @@ export default function App() {
         const updatedPrev = data.find(u => u.id === prev.id);
         return updatedPrev ?? prev;
       });
+      checkDone();
     });
-    const unsubSup = subscribeToSupervisorLogs((data) => { if (!cancelled) setSupervisorLogs(data); });
-    const unsubWorkshop = subscribeToWorkshopLogs((data) => { if (!cancelled) setWorkshopLogs(data); });
+    const unsubSup = subscribeToSupervisorLogs((data) => {
+      if (cancelled) return;
+      setSupervisorLogs(data);
+      checkDone();
+    });
+    const unsubWorkshop = subscribeToWorkshopLogs((data) => {
+      if (cancelled) return;
+      setWorkshopLogs(data);
+      checkDone();
+    });
 
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
       unsubVehicles();
       unsubMaint();
       unsubMov();

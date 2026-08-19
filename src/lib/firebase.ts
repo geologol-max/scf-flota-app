@@ -5,7 +5,7 @@
  * Nunca hardcodear credenciales aquí.
  */
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const cleanEnv = (val?: string): string => (val || '').replace(/^["']|["']$/g, '').trim();
@@ -19,15 +19,14 @@ const firebaseConfig = {
   appId: cleanEnv(import.meta.env.VITE_FIREBASE_APP_ID) || "1:837756260280:web:036dd797e36ae0a574094d",
 };
 
-// Diagnóstico de clave API de Firebase en consola del navegador
-console.log('--- DIAGNÓSTICO FIREBASE ---');
-console.log('API Key length:', firebaseConfig.apiKey ? firebaseConfig.apiKey.length : 'undefined');
-console.log('Project ID:', firebaseConfig.projectId);
-
 const app = initializeApp(firebaseConfig);
 
-/** Base de datos Firestore */
-export const db = getFirestore(app);
+/** Base de datos Firestore con persistencia local (IndexedDB) para carga ultrarrápida */
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
 
 /** Servicio de autenticación */
 export const auth = getAuth(app);

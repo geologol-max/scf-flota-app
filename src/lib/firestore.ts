@@ -67,11 +67,7 @@ export function subscribeToCollection<T>(
       callback(data);
     },
     (error) => {
-      // Si Firestore rechaza la lectura (reglas de seguridad, permisos, etc.),
-      // invocamos el callback con array vacío para que el contador de carga avance
-      // y la app no quede bloqueada indefinidamente.
-      console.error(`Error en suscripción a colección '${collectionName}':`, error.code, error.message);
-      callback([] as T[]);
+      console.warn(`[Firestore] Suscripción '${collectionName}':`, error.code, error.message);
     }
   );
 }

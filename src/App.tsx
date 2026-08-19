@@ -159,27 +159,21 @@ export default function App() {
       permisos: FULL_ADMIN_PERMISOS,
     };
 
-    let resolved = 0;
-    const total = 7;
     const checkDone = () => {
-      resolved++;
-      if (resolved >= total && !hasEnteredApp.current) {
+      if (!hasEnteredApp.current) {
         hasEnteredApp.current = true;
         setDataLoading(false);
       }
     };
 
-    // Timeout de seguridad: si onSnapshot tarda más de 10s (WebSocket bloqueado),
-    // muestra la app de todos modos con los datos disponibles hasta ese momento.
+    // Timeout de seguridad: muestra la app en máximo 4 segundos
     const timeout = setTimeout(() => {
       if (!hasEnteredApp.current) {
-        console.warn('Timeout Firestore: mostrando app con datos disponibles.');
         hasEnteredApp.current = true;
         setDataLoading(false);
-        // Garantizar currentSimulatedUser no sea null
         setCurrentSimulatedUser(prev => prev ?? fallbackProfile);
       }
-    }, 10000);
+    }, 4000);
 
     // onSnapshot sirve datos desde la caché local (IndexedDB) inmediatamente,
     // incluso sin conexión de red, lo que evita pantallas de carga prolongadas.

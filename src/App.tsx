@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Vehicle,
@@ -117,6 +117,10 @@ export default function App() {
   const [supervisorLogs, setSupervisorLogs] = useState<SupervisorFleetLog[]>([]);
   const [workshopLogs, setWorkshopLogs] = useState<WorkshopLog[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  // Ref que se activa permanentemente una vez que el usuario ingresó al sistema.
+  // Evita que refrescos del token de Firebase (que re-ejecutan el useEffect) 
+  // vuelvan a mostrar la pantalla de carga.
+  const hasEnteredApp = useRef(false);
 
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('fleet_categories');
@@ -184,7 +188,8 @@ export default function App() {
         if (realProfile && !realProfile.permisos?.gestionar_usuarios) return realProfile;
         return realProfile ?? users.find(u => u.rol === 'Administrador') ?? users[0] ?? fallbackProfile;
       });
-      setDataLoading(false); // ← la pantalla de carga desaparece aquí
+      hasEnteredApp.current = true; // ← marca permanente: el usuario ya ingresó
+      setDataLoading(false);        // ← la pantalla de carga desaparece aquí
     };
 
     initialLoad();
@@ -560,7 +565,10 @@ export default function App() {
     return <LoginPage onSignIn={signIn} error={authError} loading={authLoading} />;
   }
 
-  if (dataLoading || !currentSimulatedUser) {
+  // Mostrar pantalla de carga SOLO si el usuario nunca ha entrado antes.
+  // Una vez que hasEnteredApp.current es true, nunca volvemos a bloquear la UI,
+  // incluso si Firebase refresca el token y re-ejecuta el useEffect.
+  if (!hasEnteredApp.current && (dataLoading || !currentSimulatedUser)) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center" id="data-loading-screen">
         <div className="text-center space-y-3">

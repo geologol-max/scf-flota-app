@@ -51,6 +51,8 @@ export function useAuth(): UseAuthReturn {
         'auth/invalid-credential': 'Credenciales inválidas. Verifica tu correo y contraseña.',
         'auth/network-request-failed': 'Error de conexión. Verifica tu internet.',
         'auth/unauthorized-domain': 'El dominio del sitio no está autorizado en Firebase Console.',
+        'auth/api-key-not-valid.-please-pass-a-valid-api-key.': 'La API Key de Firebase no es válida o está deshabilitada. Revisa VITE_FIREBASE_API_KEY en .env.local / Vercel.',
+        'auth/invalid-api-key': 'La API Key de Firebase no es válida. Revisa VITE_FIREBASE_API_KEY en tu entorno.',
       };
       const code = firebaseError.code ?? '';
       const fallbackMsg = code ? `Error al iniciar sesión (${code}). Intenta nuevamente.` : 'Error al iniciar sesión. Intenta nuevamente.';

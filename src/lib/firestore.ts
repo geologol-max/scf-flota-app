@@ -45,6 +45,16 @@ export const COLLECTIONS = {
  * Suscribe a una colección en tiempo real.
  * Retorna la función de unsubscribe para limpiar en useEffect.
  */
+export async function getCollectionOnce<T>(collectionName: string): Promise<T[]> {
+  try {
+    const snap = await getDocs(query(collection(db, collectionName)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as T));
+  } catch (error: any) {
+    console.error(`Error al obtener colección '${collectionName}':`, error.code, error.message);
+    return [];
+  }
+}
+
 export function subscribeToCollection<T>(
   collectionName: string,
   callback: (data: T[]) => void

@@ -19,6 +19,7 @@ import {
   subscribeToUsers,
   subscribeToSupervisorLogs,
   subscribeToWorkshopLogs,
+  getCollectionOnce,
   updateVehicle,
   updateMaintenanceLog,
   updateMovementLog,
@@ -38,7 +39,8 @@ import {
   deleteMovementLog,
   deleteIncident,
   deleteSupervisorLog,
-  deleteWorkshopLog
+  deleteWorkshopLog,
+  COLLECTIONS,
 } from './lib/firestore';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
@@ -130,36 +132,52 @@ export default function App() {
   // State for automatic editing redirection (selected vehicle PPU to edit)
   const [vehicleToEditPpu, setVehicleToEditPpu] = useState<string | null>(null);
 
-  // ── Suscripciones Firestore (solo cuando el usuario está autenticado) ─────
+  // ── Carga inicial rápida con getDocs + suscripciones en tiempo real ──────
   useEffect(() => {
     if (!user) return;
 
-    let resolved = 0;
-    const total = 7;
-    let done = false;
-    const checkDone = () => {
-      resolved++;
-      if (!done && resolved >= total) {
-        done = true;
-        setDataLoading(false);
-      }
+    let cancelled = false;
+
+    // FASE 1: Carga inicial instantánea usando HTTP (getDocs).
+    // Esto no depende de WebSockets y carga mucho más rápido.
+    const initialLoad = async () => {
+      const [vehicles, maintenance, movements, incidents, users, supervisorLogs, workshopLogs] =
+        await Promise.all([
+          getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
+          getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
+          getCollectionOnce<FleetMovementLog>(COLLECTIONS.MOVEMENTS),
+          getCollectionOnce<Incident>(COLLECTIONS.INCIDENTS),
+          getCollectionOnce<UserRole>(COLLECTIONS.USERS),
+          getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
+          getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
+        ]);
+
+      if (cancelled) return;
+
+      setVehicles(vehicles);
+      setMaintenanceLogs(maintenance);
+      setMovementLogs(movements);
+      setIncidents(incidents);
+      setWorkshopLogs(workshopLogs);
+      setSupervisorLogs(supervisorLogs);
+      setUsers(users);
+      setCurrentSimulatedUser(() => {
+        const realProfile = users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+        if (realProfile && !realProfile.permisos?.gestionar_usuarios) return realProfile;
+        return realProfile ?? users.find(u => u.rol === 'Administrador') ?? users[0] ?? null;
+      });
+      setDataLoading(false); // ← la pantalla de carga desaparece aquí
     };
 
-    // Timeout de seguridad: si alguna colección nunca responde (reglas bloqueadas, red, etc.)
-    // mostramos la app igual después de 8 segundos para no dejar al usuario bloqueado.
-    const timeout = setTimeout(() => {
-      if (!done) {
-        done = true;
-        console.warn('Timeout de carga de Firestore alcanzado. Mostrando app con datos disponibles.');
-        setDataLoading(false);
-      }
-    }, 8000);
+    initialLoad();
 
-    const unsubVehicles = subscribeToVehicles((data) => { setVehicles(data); checkDone(); });
-    const unsubMaint = subscribeToMaintenance((data) => { setMaintenanceLogs(data); checkDone(); });
-    const unsubMov = subscribeToMovements((data) => { setMovementLogs(data); checkDone(); });
-    const unsubInc = subscribeToIncidents((data) => { setIncidents(data); checkDone(); });
+    // FASE 2: Suscripciones en tiempo real (actualizan datos después de la carga inicial).
+    const unsubVehicles = subscribeToVehicles((data) => { if (!cancelled) setVehicles(data); });
+    const unsubMaint = subscribeToMaintenance((data) => { if (!cancelled) setMaintenanceLogs(data); });
+    const unsubMov = subscribeToMovements((data) => { if (!cancelled) setMovementLogs(data); });
+    const unsubInc = subscribeToIncidents((data) => { if (!cancelled) setIncidents(data); });
     const unsubUsers = subscribeToUsers((data) => {
+      if (cancelled) return;
       setUsers(data);
       setCurrentSimulatedUser(prev => {
         // Encontrar el perfil REAL en la base de datos correspondiente al email logueado
@@ -181,13 +199,12 @@ export default function App() {
         const updatedPrev = data.find(u => u.id === prev.id);
         return updatedPrev ?? prev;
       });
-      checkDone();
     });
-    const unsubSup = subscribeToSupervisorLogs((data) => { setSupervisorLogs(data); checkDone(); });
-    const unsubWorkshop = subscribeToWorkshopLogs((data) => { setWorkshopLogs(data); checkDone(); });
+    const unsubSup = subscribeToSupervisorLogs((data) => { if (!cancelled) setSupervisorLogs(data); });
+    const unsubWorkshop = subscribeToWorkshopLogs((data) => { if (!cancelled) setWorkshopLogs(data); });
 
     return () => {
-      clearTimeout(timeout);
+      cancelled = true;
       unsubVehicles();
       unsubMaint();
       unsubMov();

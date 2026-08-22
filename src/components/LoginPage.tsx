@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Truck, Lock, Mail, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
 
 interface LoginPageProps {
   onSignIn: (email: string, password: string) => Promise<void>;
@@ -35,8 +35,8 @@ export default function LoginPage({ onSignIn, error, loading }: LoginPageProps) 
 
           {/* Header */}
           <div className="bg-slate-950 border-b border-slate-800 p-8 text-center">
-            <div className="w-14 h-14 bg-slate-800 border border-slate-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Truck className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 overflow-hidden">
+              <img src="/nera-logo.png" alt="NERA Chile" className="w-14 h-14 rounded-full object-cover" />
             </div>
             <h1 className="text-xl font-bold text-white tracking-tight">SCF Flota</h1>
             <p className="text-xs text-slate-400 font-mono uppercase tracking-widest mt-1">

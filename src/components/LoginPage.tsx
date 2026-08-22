@@ -135,52 +135,10 @@ export default function LoginPage({ onSignIn, error, loading }: LoginPageProps) 
               </button>
             </form>
 
-            {/* Acceso Rápido para Pruebas */}
-            <div className="pt-2 border-t border-slate-800 space-y-2">
-              <p className="text-[11px] font-semibold text-slate-400 text-center uppercase tracking-wider">
-                Accesos Directos de Administración
-              </p>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('jovallos@nerachilespa.cl');
-                    setPassword('Nera2026!');
-                  }}
-                  className="w-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs py-2 px-3 rounded-lg border border-slate-700 transition-all flex items-center justify-between cursor-pointer"
-                >
-                  <div className="text-left">
-                    <span className="font-semibold block text-indigo-400">Administrador: Jairo Ovallos</span>
-                    <span className="text-[10px] text-slate-400 font-mono">jovallos@nerachilespa.cl</span>
-                  </div>
-                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
-                    Nera2026!
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('geologol@gmail.com');
-                    setPassword('Nera2026!');
-                  }}
-                  className="w-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs py-2 px-3 rounded-lg border border-slate-700 transition-all flex items-center justify-between cursor-pointer"
-                >
-                  <div className="text-left">
-                    <span className="font-semibold block text-emerald-400">Superadministrador</span>
-                    <span className="text-[10px] text-slate-400 font-mono">geologol@gmail.com</span>
-                  </div>
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">
-                    Nera2026!
-                  </span>
-                </button>
-              </div>
-            </div>
-
             {/* Footer note */}
-            <p className="text-center text-[11px] text-slate-600 leading-relaxed">
-              Base de datos conectada: <span className="text-emerald-400 font-mono">scf-flota (Firebase)</span><br />
-              Acceso restringido a personal autorizado.
+            <p className="text-center text-[11px] text-slate-600 leading-relaxed pt-2 border-t border-slate-800">
+              Acceso restringido a personal autorizado.<br />
+              ¿Sin acceso? Contacta al administrador del sistema.
             </p>
           </div>
         </div>

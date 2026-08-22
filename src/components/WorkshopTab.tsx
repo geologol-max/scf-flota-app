@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Vehicle, UserRole, WorkshopLog, WorkshopChecklist } from '../types';
 import { Wrench, ClipboardCheck, Calendar, User, Search, Plus, Check, FileText, Printer, ArrowRightLeft, Edit3, Trash2 } from 'lucide-react';
+import { exportWorkshopLogToPDF, downloadWorkshopLogAsPDF } from '../utils/exporters';
 
 interface WorkshopTabProps {
   mode: 'recepcion' | 'salida';
@@ -804,12 +805,29 @@ export default function WorkshopTab({
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-2">
                           <button
-                            onClick={() => handlePrintLog(log)}
+                            onClick={() => {
+                              const matchVehicle = vehicles.find(v => v.ppu === log.ppu);
+                              exportWorkshopLogToPDF(log, matchVehicle);
+                            }}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-[11px] font-bold border border-indigo-100 transition-all cursor-pointer shadow-xs"
                             title="Imprimir Acta Oficial"
+                            id={`btn-print-workshop-${log.id}`}
                           >
-                            <Printer className="w-3.5 h-3.5" />
+                            <Printer className="w-3.5 h-3.5 text-indigo-600" />
                             <span>Imprimir Acta</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const matchVehicle = vehicles.find(v => v.ppu === log.ppu);
+                              downloadWorkshopLogAsPDF(log, matchVehicle);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[11px] font-bold border border-emerald-100 transition-all cursor-pointer shadow-xs"
+                            title="Descargar Acta en PDF"
+                            id={`btn-download-workshop-${log.id}`}
+                          >
+                            <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Descargar Acta PDF</span>
                           </button>
                           
                           <button

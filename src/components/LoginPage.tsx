@@ -35,12 +35,12 @@ export default function LoginPage({ onSignIn, error, loading }: LoginPageProps) 
 
           {/* Header */}
           <div className="bg-slate-950 border-b border-slate-800 p-8 text-center">
-            <div className="w-16 h-16 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4 p-2.5 shadow-inner">
-              <img src="/nera-logo.png" alt="NERA Chile Logo" className="w-full h-full object-contain" />
+            <div className="w-14 h-14 bg-slate-800 border border-slate-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Truck className="w-7 h-7 text-white" />
             </div>
-            <h1 className="text-xl font-extrabold text-white tracking-tight">NERA CHILE</h1>
+            <h1 className="text-xl font-bold text-white tracking-tight">SCF Flota</h1>
             <p className="text-xs text-slate-400 font-mono uppercase tracking-widest mt-1">
-              SCF Flota • Sistema de Control de Flota
+              Sistema de Control de Flota
             </p>
           </div>
 
@@ -122,7 +122,7 @@ export default function LoginPage({ onSignIn, error, loading }: LoginPageProps) 
                 type="submit"
                 disabled={loading || !email.trim() || !password.trim()}
                 id="login-submit-btn"
-                className="w-full bg-white hover:bg-slate-100 disabled:bg-slate-700 disabled:text-slate-500 text-slate-900 font-bold text-sm py-3 rounded-lg transition-all flex items-center justify-center gap-2 mt-2"
+                className="w-full bg-white hover:bg-slate-100 disabled:bg-slate-700 disabled:text-slate-500 text-slate-900 font-bold text-sm py-3 rounded-lg transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
               >
                 {loading ? (
                   <>
@@ -135,10 +135,52 @@ export default function LoginPage({ onSignIn, error, loading }: LoginPageProps) 
               </button>
             </form>
 
+            {/* Acceso Rápido para Pruebas */}
+            <div className="pt-2 border-t border-slate-800 space-y-2">
+              <p className="text-[11px] font-semibold text-slate-400 text-center uppercase tracking-wider">
+                Accesos Directos de Administración
+              </p>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('jovallos@nerachilespa.cl');
+                    setPassword('Nera2026!');
+                  }}
+                  className="w-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs py-2 px-3 rounded-lg border border-slate-700 transition-all flex items-center justify-between cursor-pointer"
+                >
+                  <div className="text-left">
+                    <span className="font-semibold block text-indigo-400">Administrador: Jairo Ovallos</span>
+                    <span className="text-[10px] text-slate-400 font-mono">jovallos@nerachilespa.cl</span>
+                  </div>
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
+                    Nera2026!
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('geologol@gmail.com');
+                    setPassword('Nera2026!');
+                  }}
+                  className="w-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs py-2 px-3 rounded-lg border border-slate-700 transition-all flex items-center justify-between cursor-pointer"
+                >
+                  <div className="text-left">
+                    <span className="font-semibold block text-emerald-400">Superadministrador</span>
+                    <span className="text-[10px] text-slate-400 font-mono">geologol@gmail.com</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">
+                    Nera2026!
+                  </span>
+                </button>
+              </div>
+            </div>
+
             {/* Footer note */}
             <p className="text-center text-[11px] text-slate-600 leading-relaxed">
-              Acceso restringido a personal autorizado.<br />
-              ¿Sin acceso? Contacta al administrador del sistema.
+              Base de datos conectada: <span className="text-emerald-400 font-mono">scf-flota (Firebase)</span><br />
+              Acceso restringido a personal autorizado.
             </p>
           </div>
         </div>

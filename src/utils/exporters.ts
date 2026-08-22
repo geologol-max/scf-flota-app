@@ -1,5 +1,4 @@
 import { Vehicle, FleetMovementLog, MaintenanceLog } from '../types';
-import { NERA_LOGO_BASE64 } from './neraLogoBase64';
 
 /**
  * Generates an Excel-compatible CSV file (with UTF-8 Byte Order Mark for Spanish support)
@@ -659,12 +658,9 @@ export function exportMaintenanceOrderToPDF(log: MaintenanceLog, vehicle?: Vehic
       </head>
       <body>
         <div class="header">
-          <div style="display: flex; align-items: center; gap: 14px;">
-            <img src="${NERA_LOGO_BASE64}" style="width: 52px; height: 52px; object-fit: contain;" />
-            <div>
-              <h1 class="title">NERA CHILE - PORTAL DE MANTENCIONES</h1>
-              <div class="subtitle">SCF Flota • Consola de Control Logístico</div>
-            </div>
+          <div>
+            <h1 class="title">SCF FLOTA - PORTAL DE MANTENCIONES</h1>
+            <div class="subtitle">Consola de Control Reguladora S.A. • Chile</div>
           </div>
           <div class="badge-ot">ORDEN DE TRABAJO #${log.id}</div>
         </div>
@@ -901,12 +897,9 @@ export function downloadMaintenanceOrderAsPDF(log: MaintenanceLog, vehicle?: Veh
       <body>
         <div id="ot-content-to-download">
           <div class="header">
-            <div style="display: flex; align-items: center; gap: 14px;">
-              <img src="${NERA_LOGO_BASE64}" style="width: 52px; height: 52px; object-fit: contain;" />
-              <div>
-                <h1 class="title">NERA CHILE - PORTAL DE MANTENCIONES</h1>
-                <div class="subtitle">SCF Flota • Consola de Control Logístico</div>
-              </div>
+            <div>
+              <h1 class="title">SCF FLOTA - PORTAL DE MANTENCIONES</h1>
+              <div class="subtitle">Consola de Control Reguladora S.A. • Chile</div>
             </div>
             <div class="badge-ot">ORDEN DE TRABAJO #${log.id}</div>
           </div>

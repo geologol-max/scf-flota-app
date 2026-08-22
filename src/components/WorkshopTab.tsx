@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Vehicle, UserRole, WorkshopLog, WorkshopChecklist } from '../types';
 import { Wrench, ClipboardCheck, Calendar, User, Search, Plus, Check, FileText, Printer, ArrowRightLeft, Edit3, Trash2 } from 'lucide-react';
-import { NERA_LOGO_BASE64 } from '../utils/neraLogoBase64';
 
 interface WorkshopTabProps {
   mode: 'recepcion' | 'salida';
@@ -350,12 +349,9 @@ export default function WorkshopTab({
         </head>
         <body>
           <div class="header">
-            <div style="display: flex; align-items: center; gap: 14px;">
-              <img src="${NERA_LOGO_BASE64}" style="width: 52px; height: 52px; object-fit: contain;" />
-              <div>
-                <h1 class="title">NERA CHILE - CONTROL LOGÍSTICO</h1>
-                <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Acta Oficial de Control y Entrega Técnica</div>
-              </div>
+            <div>
+              <h1 class="title">SCF FLOTA - CONTROL LOGÍSTICO</h1>
+              <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Acta Oficial de Control y Entrega Técnica</div>
             </div>
             <div class="badge-ot">REGISTRO ${log.id}</div>
           </div>
@@ -431,219 +427,6 @@ export default function WorkshopTab({
       </html>
     `);
     printWindow.document.close();
-  };
-
-  const handleDownloadLogPDF = (log: WorkshopLog) => {
-    const downloadWindow = window.open('', '_blank');
-    if (!downloadWindow) {
-      alert('Por favor habilite los pop-ups para descargar el acta en PDF.');
-      return;
-    }
-
-    const matchedVeh = vehicles.find(v => v.ppu === log.ppu);
-    const vehDetails = matchedVeh ? `${matchedVeh.marca} ${matchedVeh.modelo} (${matchedVeh.anio}) - ${matchedVeh.tipo}` : 'No disponible';
-
-    const checklistRows = [
-      { label: 'Sistema de Luces y Señalizadores', val: log.checklist.luces },
-      { label: 'Estado de Neumáticos y Presión', val: log.checklist.neumaticos },
-      { label: 'Estado de Carrocería / Rayaduras / Golpes', val: log.checklist.carroceria },
-      { label: 'Herramientas Obligatorias y Rueda de Repuesto', val: log.checklist.herramientas },
-      { label: 'Documentación a Bordo (SOAP, RT, Permiso)', val: log.checklist.documentos },
-      ...(log.tipo === 'Salida' ? [
-        { label: 'Limpieza Interior y Exterior', val: log.checklist.limpieza },
-        { label: 'Nivel de Fluidos (Aceite, refrigerante, frenos)', val: log.checklist.fluidos },
-        { label: 'Prueba de Ruta y Funcionamiento General', val: log.checklist.prueba_ruta }
-      ] : [])
-    ].map(item => `
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 10px;">${item.label}</td>
-        <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: ${item.val ? '#166534' : '#991b1b'}; background-color: ${item.val ? '#dcfce7' : '#fee2e2'}">
-          ${item.val ? 'CONFORME (PASA)' : 'NO CONFORME (FALLA)'}
-        </td>
-      </tr>
-    `).join('');
-
-    const tipoLabel = log.tipo === 'Ingreso' ? 'Recepción' : 'Salida';
-    const filename = `Acta_${tipoLabel}_Taller_${log.ppu}_${log.id}.pdf`;
-
-    downloadWindow.document.write(`
-      <html>
-        <head>
-          <title>Acta de ${tipoLabel} de Taller - ${log.ppu}</title>
-          <style>
-            body {
-              font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-              color: #1e293b;
-              margin: 30px;
-              line-height: 1.5;
-            }
-            .header {
-              border-bottom: 2px solid #0f172a;
-              padding-bottom: 15px;
-              margin-bottom: 25px;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-            }
-            .title {
-              font-size: 20px;
-              font-weight: bold;
-              color: #0f172a;
-              text-transform: uppercase;
-              margin: 0;
-            }
-            .badge-ot {
-              background-color: #0f172a;
-              color: white;
-              padding: 6px 12px;
-              font-size: 13px;
-              font-weight: bold;
-              border-radius: 4px;
-              font-family: monospace;
-            }
-            .section-title {
-              font-size: 11px;
-              font-weight: bold;
-              text-transform: uppercase;
-              background-color: #f1f5f9;
-              padding: 6px 10px;
-              margin-top: 25px;
-              margin-bottom: 12px;
-              border-left: 4px solid #0f172a;
-            }
-            .grid-info {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 12px;
-              margin-bottom: 18px;
-            }
-            .info-item { border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
-            .info-label { font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; }
-            .info-value { font-size: 12px; font-weight: 550; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 30px; }
-            th { background-color: #0f172a; color: white; font-weight: bold; text-align: left; padding: 10px; }
-            .comments-box {
-              background-color: #f8fafc;
-              border: 1px solid #e2e8f0;
-              border-radius: 6px;
-              padding: 12px;
-              min-height: 60px;
-              font-size: 12px;
-            }
-            .signature-section {
-              margin-top: 60px;
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 40px;
-            }
-            .signature-box { text-align: center; border-top: 1px solid #cbd5e1; padding-top: 8px; }
-            .signature-title { font-size: 11px; font-weight: bold; }
-            .footer {
-              border-top: 1px dashed #cbd5e1;
-              padding-top: 10px;
-              font-size: 9px;
-              color: #64748b;
-              margin-top: 40px;
-              text-align: center;
-            }
-          </style>
-        </head>
-        <body>
-          <div id="acta-content">
-            <div class="header">
-              <div style="display: flex; align-items: center; gap: 14px;">
-                <img src="${NERA_LOGO_BASE64}" style="width: 52px; height: 52px; object-fit: contain;" />
-                <div>
-                  <h1 class="title">NERA CHILE - CONTROL LOGÍSTICO</h1>
-                  <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Acta Oficial de ${tipoLabel} de Taller</div>
-                </div>
-              </div>
-              <div class="badge-ot">REGISTRO ${log.id}</div>
-            </div>
-
-            <div style="text-align: right; font-size: 11px; color: #64748b; margin-bottom: 15px;">
-              <strong>Fecha/Hora:</strong> ${log.fecha}
-            </div>
-
-            <div class="section-title">1. Identificación de Unidad</div>
-            <div class="grid-info">
-              <div class="info-item">
-                <div class="info-label">Placa Patente (PPU)</div>
-                <div class="info-value" style="font-family: monospace; color: #1d4ed8; font-size: 13px;">${log.ppu}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Código Interno Móvil</div>
-                <div class="info-value" style="font-family: monospace;">${log.codigo_vehiculo}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Ficha Vehículo</div>
-                <div class="info-value">${vehDetails}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Kilometraje registrado (Odómetro)</div>
-                <div class="info-value">${log.odometro.toLocaleString()} km</div>
-              </div>
-            </div>
-
-            <div class="section-title">2. Checklist de Inspección (${tipoLabel})</div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Punto de Inspección Obligatorio</th>
-                  <th style="width: 200px; text-align: center;">Estado Concesionario</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${checklistRows}
-              </tbody>
-            </table>
-
-            <div class="section-title">3. Observaciones y Hallazgos</div>
-            <div class="comments-box">
-              ${log.observaciones || 'No se detallan observaciones adicionales.'}
-            </div>
-
-            <div class="signature-section">
-              <div class="signature-box">
-                <div style="height: 50px;"></div>
-                <div class="signature-title">${log.responsable}</div>
-                <div style="font-size: 10px; color: #64748b;">Firma Responsable Logístico / Conductor</div>
-              </div>
-              <div class="signature-box">
-                <div style="height: 50px;"></div>
-                <div class="signature-title">Encargado de Taller Autorizado</div>
-                <div style="font-size: 10px; color: #64748b;">Firma de Entrega / Recepción Conforme</div>
-              </div>
-            </div>
-
-            <div class="footer">
-              ACTA DE REGISTRO DOCUMENTAL EMITIDA MEDIANTE CONSOLA DE CONTROL DE FLOTA SCF
-              <div style="margin-top: 5px;">Este control es indispensable para la cobertura de pólizas de seguro e inspección técnica fiscal.</div>
-            </div>
-          </div>
-
-          <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                const element = document.getElementById('acta-content');
-                const opt = {
-                  margin:       10,
-                  filename:     '${filename}',
-                  image:        { type: 'jpeg', quality: 0.98 },
-                  html2canvas:  { scale: 2, useCORS: true },
-                  jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
-                };
-                html2pdf().set(opt).from(element).save().then(() => {
-                  setTimeout(function() { window.close(); }, 1000);
-                });
-              }, 500);
-            }
-          </script>
-        </body>
-      </html>
-    `);
-    downloadWindow.document.close();
   };
 
   return (
@@ -1027,15 +810,6 @@ export default function WorkshopTab({
                           >
                             <Printer className="w-3.5 h-3.5" />
                             <span>Imprimir Acta</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleDownloadLogPDF(log)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[11px] font-bold border border-emerald-100 transition-all cursor-pointer shadow-xs"
-                            title="Descargar Acta en formato PDF"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Descargar PDF</span>
                           </button>
                           
                           <button

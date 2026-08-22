@@ -57,7 +57,8 @@ export async function getCollectionOnce<T>(collectionName: string): Promise<T[]>
 
 export function subscribeToCollection<T>(
   collectionName: string,
-  callback: (data: T[]) => void
+  callback: (data: T[]) => void,
+  onError?: (error: any) => void
 ): Unsubscribe {
   const q = query(collection(db, collectionName));
   return onSnapshot(
@@ -68,13 +69,14 @@ export function subscribeToCollection<T>(
     },
     (error) => {
       console.warn(`[Firestore] Suscripción '${collectionName}':`, error.code, error.message);
+      if (onError) onError(error);
     }
   );
 }
 
 // ─── VEHICLES ──────────────────────────────────────────────────────────────────
-export function subscribeToVehicles(cb: (v: Vehicle[]) => void): Unsubscribe {
-  return subscribeToCollection<Vehicle>(COLLECTIONS.VEHICLES, cb);
+export function subscribeToVehicles(cb: (v: Vehicle[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<Vehicle>(COLLECTIONS.VEHICLES, cb, onError);
 }
 
 export async function addVehicle(vehicle: Omit<Vehicle, 'id'>): Promise<string> {
@@ -97,8 +99,8 @@ export async function deleteVehicle(id: string): Promise<void> {
 }
 
 // ─── MAINTENANCE LOGS ──────────────────────────────────────────────────────────
-export function subscribeToMaintenance(cb: (logs: MaintenanceLog[]) => void): Unsubscribe {
-  return subscribeToCollection<MaintenanceLog>(COLLECTIONS.MAINTENANCE, cb);
+export function subscribeToMaintenance(cb: (logs: MaintenanceLog[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<MaintenanceLog>(COLLECTIONS.MAINTENANCE, cb, onError);
 }
 
 export async function addMaintenanceLog(log: Omit<MaintenanceLog, 'id'>): Promise<string> {
@@ -118,8 +120,8 @@ export async function deleteMaintenanceLog(id: string): Promise<void> {
 }
 
 // ─── MOVEMENT LOGS ─────────────────────────────────────────────────────────────
-export function subscribeToMovements(cb: (logs: FleetMovementLog[]) => void): Unsubscribe {
-  return subscribeToCollection<FleetMovementLog>(COLLECTIONS.MOVEMENTS, cb);
+export function subscribeToMovements(cb: (logs: FleetMovementLog[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<FleetMovementLog>(COLLECTIONS.MOVEMENTS, cb, onError);
 }
 
 export async function addMovementLog(log: Omit<FleetMovementLog, 'id'>): Promise<string> {
@@ -135,8 +137,8 @@ export async function updateMovementLog(id: string, data: Partial<FleetMovementL
 }
 
 // ─── INCIDENTS ─────────────────────────────────────────────────────────────────
-export function subscribeToIncidents(cb: (incidents: Incident[]) => void): Unsubscribe {
-  return subscribeToCollection<Incident>(COLLECTIONS.INCIDENTS, cb);
+export function subscribeToIncidents(cb: (incidents: Incident[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<Incident>(COLLECTIONS.INCIDENTS, cb, onError);
 }
 
 export async function addIncident(incident: Omit<Incident, 'id'>): Promise<string> {
@@ -152,8 +154,8 @@ export async function updateIncident(id: string, data: Partial<Incident>): Promi
 }
 
 // ─── USERS ─────────────────────────────────────────────────────────────────────
-export function subscribeToUsers(cb: (users: UserRole[]) => void): Unsubscribe {
-  return subscribeToCollection<UserRole>(COLLECTIONS.USERS, cb);
+export function subscribeToUsers(cb: (users: UserRole[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<UserRole>(COLLECTIONS.USERS, cb, onError);
 }
 
 export async function addUser(user: Omit<UserRole, 'id'>): Promise<string> {
@@ -173,8 +175,8 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 // ─── SUPERVISOR LOGS ───────────────────────────────────────────────────────────
-export function subscribeToSupervisorLogs(cb: (logs: SupervisorFleetLog[]) => void): Unsubscribe {
-  return subscribeToCollection<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS, cb);
+export function subscribeToSupervisorLogs(cb: (logs: SupervisorFleetLog[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS, cb, onError);
 }
 
 export async function addSupervisorLog(log: Omit<SupervisorFleetLog, 'id'>): Promise<string> {
@@ -190,8 +192,8 @@ export async function updateSupervisorLog(id: string, data: Partial<SupervisorFl
 }
 
 // ─── WORKSHOP LOGS ─────────────────────────────────────────────────────────────
-export function subscribeToWorkshopLogs(cb: (logs: WorkshopLog[]) => void): Unsubscribe {
-  return subscribeToCollection<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS, cb);
+export function subscribeToWorkshopLogs(cb: (logs: WorkshopLog[]) => void, onError?: (err: any) => void): Unsubscribe {
+  return subscribeToCollection<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS, cb, onError);
 }
 
 export async function addWorkshopLog(log: Omit<WorkshopLog, 'id'>): Promise<string> {

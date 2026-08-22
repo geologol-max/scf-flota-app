@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Vehicle,
@@ -19,7 +19,6 @@ import {
   subscribeToUsers,
   subscribeToSupervisorLogs,
   subscribeToWorkshopLogs,
-  getCollectionOnce,
   updateVehicle,
   updateMaintenanceLog,
   updateMovementLog,
@@ -39,8 +38,7 @@ import {
   deleteMovementLog,
   deleteIncident,
   deleteSupervisorLog,
-  deleteWorkshopLog,
-  COLLECTIONS,
+  deleteWorkshopLog
 } from './lib/firestore';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
@@ -117,10 +115,6 @@ export default function App() {
   const [supervisorLogs, setSupervisorLogs] = useState<SupervisorFleetLog[]>([]);
   const [workshopLogs, setWorkshopLogs] = useState<WorkshopLog[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
-  // Ref que se activa permanentemente una vez que el usuario ingresó al sistema.
-  // Evita que refrescos del token de Firebase (que re-ejecutan el useEffect) 
-  // vuelvan a mostrar la pantalla de carga.
-  const hasEnteredApp = useRef(false);
 
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('fleet_categories');
@@ -136,106 +130,114 @@ export default function App() {
   // State for automatic editing redirection (selected vehicle PPU to edit)
   const [vehicleToEditPpu, setVehicleToEditPpu] = useState<string | null>(null);
 
-  // ── Carga inicial rápida con getDocs + suscripciones en tiempo real ──────
+  // ── Suscripciones Firestore (solo cuando el usuario está autenticado) ─────
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setDataLoading(false);
+      return;
+    }
 
-    let cancelled = false;
+    setDataLoading(true);
 
-    // Permisos de administrador completo (fallback si el email no está en Firestore users)
-    const FULL_ADMIN_PERMISOS = {
-      ver_dashboard: true, ver_mapas: true, ver_flota: true, editar_flota: true,
-      ver_documentos: true, cargar_documentos: true, descargar_documentos: true,
-      movimientos_flota: true, incidentes_siniestros: true, mantenimientos: true,
-      gestionar_usuarios: true, descargar_auditoria: true, carga_masiva: true,
-      gestion_supervisores: true,
-    };
-    const fallbackProfile: UserRole = {
-      id: user.uid,
-      nombre: user.email?.split('@')[0] ?? 'Usuario',
-      email: user.email ?? '',
+    const defaultFallbackUser: UserRole = {
+      id: user.uid || 'admin-fallback',
+      nombre: user.displayName || user.email?.split('@')[0] || 'Administrador',
+      email: user.email || 'admin@nerachilespa.cl',
       rol: 'Administrador',
       activo: true,
-      permisos: FULL_ADMIN_PERMISOS,
+      permisos: {
+        ver_dashboard: true,
+        ver_mapas: true,
+        ver_flota: true,
+        editar_flota: true,
+        ver_documentos: true,
+        cargar_documentos: true,
+        descargar_documentos: true,
+        movimientos_flota: true,
+        incidentes_siniestros: true,
+        mantenimientos: true,
+        gestionar_usuarios: true,
+        descargar_auditoria: true,
+        carga_masiva: true,
+        gestion_supervisores: true,
+      },
     };
 
+    let resolved = 0;
+    const total = 7;
     const checkDone = () => {
-      if (!hasEnteredApp.current) {
-        hasEnteredApp.current = true;
+      resolved++;
+      if (resolved >= total) {
         setDataLoading(false);
       }
     };
 
-    // Timeout de seguridad: muestra la app en máximo 4 segundos
-    const timeout = setTimeout(() => {
-      if (!hasEnteredApp.current) {
-        hasEnteredApp.current = true;
-        setDataLoading(false);
-        setCurrentSimulatedUser(prev => prev ?? fallbackProfile);
+    // Timeout de seguridad: asegura que la UI nunca se quede en carga infinita
+    const timeoutId = setTimeout(() => {
+      setDataLoading(false);
+      setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
+    }, 5000);
+
+    const unsubVehicles = subscribeToVehicles(
+      (data) => { setVehicles(data); checkDone(); },
+      () => { checkDone(); }
+    );
+    const unsubMaint = subscribeToMaintenance(
+      (data) => { setMaintenanceLogs(data); checkDone(); },
+      () => { checkDone(); }
+    );
+    const unsubMov = subscribeToMovements(
+      (data) => { setMovementLogs(data); checkDone(); },
+      () => { checkDone(); }
+    );
+    const unsubInc = subscribeToIncidents(
+      (data) => { setIncidents(data); checkDone(); },
+      () => { checkDone(); }
+    );
+    const unsubUsers = subscribeToUsers(
+      (data) => {
+        setUsers(data);
+        setCurrentSimulatedUser(prev => {
+          if (!data || data.length === 0) {
+            return prev ?? defaultFallbackUser;
+          }
+          // Encontrar el perfil REAL en la base de datos correspondiente al email logueado
+          const realProfile = data.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+
+          // REGLA DE SEGURIDAD ESTRICTA: Si el usuario logueado NO es administrador (no tiene gestionar_usuarios),
+          // se le bloquea de forma inmutable en su propio perfil real.
+          if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
+            return realProfile;
+          }
+
+          // Si es administrador o aún no se ha inicializado el perfil activo:
+          if (!prev) {
+            return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0] ?? defaultFallbackUser;
+          }
+
+          // Si ya hay un usuario activo (simulado por un administrador),
+          // sincronizar sus datos actualizados desde la base de datos si cambian.
+          const updatedPrev = data.find(u => u.id === prev.id);
+          return updatedPrev ?? realProfile ?? prev ?? defaultFallbackUser;
+        });
+        checkDone();
+      },
+      () => {
+        setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
+        checkDone();
       }
-    }, 4000);
-
-    // onSnapshot sirve datos desde la caché local (IndexedDB) inmediatamente,
-    // incluso sin conexión de red, lo que evita pantallas de carga prolongadas.
-    const unsubVehicles = subscribeToVehicles((data) => {
-      if (cancelled) return;
-      setVehicles(data);
-      checkDone();
-    });
-    const unsubMaint = subscribeToMaintenance((data) => {
-      if (cancelled) return;
-      setMaintenanceLogs(data);
-      checkDone();
-    });
-    const unsubMov = subscribeToMovements((data) => {
-      if (cancelled) return;
-      setMovementLogs(data);
-      checkDone();
-    });
-    const unsubInc = subscribeToIncidents((data) => {
-      if (cancelled) return;
-      setIncidents(data);
-      checkDone();
-    });
-    const unsubUsers = subscribeToUsers((data) => {
-      if (cancelled) return;
-      setUsers(data);
-      setCurrentSimulatedUser(prev => {
-        // Encontrar el perfil REAL en la base de datos correspondiente al email logueado
-        const realProfile = data.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-
-        // REGLA DE SEGURIDAD ESTRICTA: Si el usuario logueado NO es administrador (no tiene gestionar_usuarios),
-        // se le bloquea de forma inmutable en su propio perfil real.
-        if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
-          return realProfile;
-        }
-
-        // Si es administrador o aún no se ha inicializado el perfil activo:
-        if (!prev || prev.id === user.uid) {
-          return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0] ?? fallbackProfile;
-        }
-
-        // Si ya hay un usuario activo (simulado por un administrador),
-        // sincronizar sus datos actualizados desde la base de datos si cambian.
-        const updatedPrev = data.find(u => u.id === prev.id);
-        return updatedPrev ?? prev;
-      });
-      checkDone();
-    });
-    const unsubSup = subscribeToSupervisorLogs((data) => {
-      if (cancelled) return;
-      setSupervisorLogs(data);
-      checkDone();
-    });
-    const unsubWorkshop = subscribeToWorkshopLogs((data) => {
-      if (cancelled) return;
-      setWorkshopLogs(data);
-      checkDone();
-    });
+    );
+    const unsubSup = subscribeToSupervisorLogs(
+      (data) => { setSupervisorLogs(data); checkDone(); },
+      () => { checkDone(); }
+    );
+    const unsubWorkshop = subscribeToWorkshopLogs(
+      (data) => { setWorkshopLogs(data); checkDone(); },
+      () => { checkDone(); }
+    );
 
     return () => {
-      cancelled = true;
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
       unsubVehicles();
       unsubMaint();
       unsubMov();
@@ -573,10 +575,7 @@ export default function App() {
     return <LoginPage onSignIn={signIn} error={authError} loading={authLoading} />;
   }
 
-  // Mostrar pantalla de carga SOLO si el usuario nunca ha entrado antes.
-  // Una vez que hasEnteredApp.current es true, nunca volvemos a bloquear la UI,
-  // incluso si Firebase refresca el token y re-ejecuta el useEffect.
-  if (!hasEnteredApp.current && (dataLoading || !currentSimulatedUser)) {
+  if (dataLoading || !currentSimulatedUser) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center" id="data-loading-screen">
         <div className="text-center space-y-3">
@@ -639,16 +638,12 @@ export default function App() {
         <aside className="w-full md:w-64 shrink-0 bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col text-left" id="sidebar-panel">
           
           {/* Logo Brand Header */}
-          <div className="p-5 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <img src="/nera-logo.png" alt="NERA Chile Logo" className="w-10 h-10 object-contain shrink-0" />
-              <div>
-                <h1 className="text-base font-extrabold text-slate-900 tracking-tight leading-none font-display">
-                  NERA <span className="text-red-600 font-bold">CHILE</span>
-                </h1>
-                <p className="text-[10px] text-slate-500 font-medium tracking-tight mt-0.5">SCF Flota • Consola</p>
-              </div>
-            </div>
+          <div className="p-6 border-b border-slate-100">
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2 font-display">
+              <Truck className="w-5 h-5 text-slate-950" />
+              <span>SCF <span className="font-normal text-slate-500">Flota</span></span>
+            </h1>
+            <p className="text-[9px] text-slate-400 font-mono tracking-wider font-bold mt-1 uppercase">Consola de Control</p>
           </div>
 
           {/* Navigation Items */}

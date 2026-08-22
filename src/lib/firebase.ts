@@ -4,8 +4,8 @@
  * Las credenciales se leen desde variables de entorno VITE_* (Vite las inyecta en build time).
  * Nunca hardcodear credenciales aquí.
  */
-import { initializeApp } from 'firebase/app';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const cleanEnv = (val?: string): string => (val || '').replace(/^["']|["']$/g, '').trim();
@@ -19,14 +19,11 @@ const firebaseConfig = {
   appId: cleanEnv(import.meta.env.VITE_FIREBASE_APP_ID) || "1:837756260280:web:036dd797e36ae0a574094d",
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-/** Base de datos Firestore con persistencia local (IndexedDB) para carga ultrarrápida */
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
-});
+/** Base de datos Firestore con conexión directa y sincronización en tiempo real */
+export const db = getFirestore(app);
 
 /** Servicio de autenticación */
 export const auth = getAuth(app);
+

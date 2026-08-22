@@ -38,7 +38,9 @@ import {
   deleteMovementLog,
   deleteIncident,
   deleteSupervisorLog,
-  deleteWorkshopLog
+  deleteWorkshopLog,
+  getCollectionOnce,
+  COLLECTIONS
 } from './lib/firestore';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
@@ -130,7 +132,7 @@ export default function App() {
   // State for automatic editing redirection (selected vehicle PPU to edit)
   const [vehicleToEditPpu, setVehicleToEditPpu] = useState<string | null>(null);
 
-  // ── Suscripciones Firestore (solo cuando el usuario está autenticado) ─────
+  // ── Suscripciones y Carga Firestore (solo cuando el usuario está autenticado) ─────
   useEffect(() => {
     if (!user) {
       setDataLoading(false);
@@ -142,7 +144,7 @@ export default function App() {
     const defaultFallbackUser: UserRole = {
       id: user.uid || 'admin-fallback',
       nombre: user.displayName || user.email?.split('@')[0] || 'Administrador',
-      email: user.email || 'admin@nerachilespa.cl',
+      email: user.email || 'jovallos@nerachilespa.cl',
       rol: 'Administrador',
       activo: true,
       permisos: {
@@ -163,6 +165,38 @@ export default function App() {
       },
     };
 
+    // 1. Carga inicial inmediata en paralelo (GetDocs) para poblar la UI al instante
+    Promise.all([
+      getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
+      getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
+      getCollectionOnce<FleetMovementLog>(COLLECTIONS.MOVEMENTS),
+      getCollectionOnce<Incident>(COLLECTIONS.INCIDENTS),
+      getCollectionOnce<UserRole>(COLLECTIONS.USERS),
+      getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
+      getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
+    ]).then(([vList, mList, movList, incList, uList, sList, wList]) => {
+      if (vList.length > 0) setVehicles(vList);
+      if (mList.length > 0) setMaintenanceLogs(mList);
+      if (movList.length > 0) setMovementLogs(movList);
+      if (incList.length > 0) setIncidents(incList);
+      if (uList.length > 0) {
+        setUsers(uList);
+        setCurrentSimulatedUser(prev => {
+          const realProfile = uList.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+          if (realProfile && !realProfile.permisos?.gestionar_usuarios) return realProfile;
+          if (!prev) return realProfile ?? uList.find(u => u.rol === 'Administrador') ?? uList[0] ?? defaultFallbackUser;
+          return uList.find(u => u.id === prev.id) ?? realProfile ?? prev ?? defaultFallbackUser;
+        });
+      } else {
+        setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
+      }
+      if (sList.length > 0) setSupervisorLogs(sList);
+      if (wList.length > 0) setWorkshopLogs(wList);
+      setDataLoading(false);
+    }).catch((err) => {
+      console.warn('Error en carga inicial rápida:', err);
+    });
+
     let resolved = 0;
     const total = 7;
     const checkDone = () => {
@@ -176,50 +210,41 @@ export default function App() {
     const timeoutId = setTimeout(() => {
       setDataLoading(false);
       setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
-    }, 5000);
+    }, 4000);
 
+    // 2. Suscripciones en tiempo real (onSnapshot) para sincronización continua
     const unsubVehicles = subscribeToVehicles(
-      (data) => { setVehicles(data); checkDone(); },
+      (data) => { if (data.length > 0) setVehicles(data); checkDone(); },
       () => { checkDone(); }
     );
     const unsubMaint = subscribeToMaintenance(
-      (data) => { setMaintenanceLogs(data); checkDone(); },
+      (data) => { if (data.length > 0) setMaintenanceLogs(data); checkDone(); },
       () => { checkDone(); }
     );
     const unsubMov = subscribeToMovements(
-      (data) => { setMovementLogs(data); checkDone(); },
+      (data) => { if (data.length > 0) setMovementLogs(data); checkDone(); },
       () => { checkDone(); }
     );
     const unsubInc = subscribeToIncidents(
-      (data) => { setIncidents(data); checkDone(); },
+      (data) => { if (data.length > 0) setIncidents(data); checkDone(); },
       () => { checkDone(); }
     );
     const unsubUsers = subscribeToUsers(
       (data) => {
-        setUsers(data);
-        setCurrentSimulatedUser(prev => {
-          if (!data || data.length === 0) {
-            return prev ?? defaultFallbackUser;
-          }
-          // Encontrar el perfil REAL en la base de datos correspondiente al email logueado
-          const realProfile = data.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-
-          // REGLA DE SEGURIDAD ESTRICTA: Si el usuario logueado NO es administrador (no tiene gestionar_usuarios),
-          // se le bloquea de forma inmutable en su propio perfil real.
-          if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
-            return realProfile;
-          }
-
-          // Si es administrador o aún no se ha inicializado el perfil activo:
-          if (!prev) {
-            return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0] ?? defaultFallbackUser;
-          }
-
-          // Si ya hay un usuario activo (simulado por un administrador),
-          // sincronizar sus datos actualizados desde la base de datos si cambian.
-          const updatedPrev = data.find(u => u.id === prev.id);
-          return updatedPrev ?? realProfile ?? prev ?? defaultFallbackUser;
-        });
+        if (data && data.length > 0) {
+          setUsers(data);
+          setCurrentSimulatedUser(prev => {
+            const realProfile = data.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+            if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
+              return realProfile;
+            }
+            if (!prev) {
+              return realProfile ?? data.find(u => u.rol === 'Administrador') ?? data[0] ?? defaultFallbackUser;
+            }
+            const updatedPrev = data.find(u => u.id === prev.id);
+            return updatedPrev ?? realProfile ?? prev ?? defaultFallbackUser;
+          });
+        }
         checkDone();
       },
       () => {
@@ -228,11 +253,11 @@ export default function App() {
       }
     );
     const unsubSup = subscribeToSupervisorLogs(
-      (data) => { setSupervisorLogs(data); checkDone(); },
+      (data) => { if (data.length > 0) setSupervisorLogs(data); checkDone(); },
       () => { checkDone(); }
     );
     const unsubWorkshop = subscribeToWorkshopLogs(
-      (data) => { setWorkshopLogs(data); checkDone(); },
+      (data) => { if (data.length > 0) setWorkshopLogs(data); checkDone(); },
       () => { checkDone(); }
     );
 

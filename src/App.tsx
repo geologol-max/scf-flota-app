@@ -132,19 +132,14 @@ export default function App() {
   // State for automatic editing redirection (selected vehicle PPU to edit)
   const [vehicleToEditPpu, setVehicleToEditPpu] = useState<string | null>(null);
 
-  // ── Suscripciones y Carga Firestore (solo cuando el usuario está autenticado) ─────
+  // ── Suscripciones y Carga Continua de Firestore ──────────────────────────
   useEffect(() => {
-    if (!user) {
-      setDataLoading(false);
-      return;
-    }
-
     setDataLoading(true);
 
     const defaultFallbackUser: UserRole = {
-      id: user.uid || 'admin-fallback',
-      nombre: user.displayName || user.email?.split('@')[0] || 'Administrador',
-      email: user.email || 'jovallos@nerachilespa.cl',
+      id: user?.uid || 'admin-fallback',
+      nombre: user?.displayName || user?.email?.split('@')[0] || 'Administrador',
+      email: user?.email || 'jovallos@nerachilespa.cl',
       rol: 'Administrador',
       activo: true,
       permisos: {
@@ -165,8 +160,8 @@ export default function App() {
       },
     };
 
-    // 1. Carga inicial inmediata en paralelo (GetDocs) para poblar la UI al instante
-    console.log('[SCF] Iniciando carga de datos de Firestore...');
+    // 1. Carga inicial inmediata en paralelo (GetDocs)
+    console.log('[SCF] Conectando a Firestore...');
     Promise.all([
       getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
       getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
@@ -176,7 +171,7 @@ export default function App() {
       getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
       getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
     ]).then(([vList, mList, movList, incList, uList, sList, wList]) => {
-      console.log(`[SCF] Datos cargados: vehicles=${vList.length}, maintenance=${mList.length}, movements=${movList.length}, incidents=${incList.length}, users=${uList.length}, supervisors=${sList.length}, workshop=${wList.length}`);
+      console.log(`[SCF] Base de datos conectada: ${vList.length} vehículos, ${mList.length} mantenimientos, ${movList.length} movimientos, ${incList.length} incidentes, ${uList.length} usuarios, ${sList.length} supervisores, ${wList.length} taller.`);
       if (vList.length > 0) setVehicles(vList);
       if (mList.length > 0) setMaintenanceLogs(mList);
       if (movList.length > 0) setMovementLogs(movList);
@@ -184,20 +179,20 @@ export default function App() {
       if (uList.length > 0) {
         setUsers(uList);
         setCurrentSimulatedUser(prev => {
-          const realProfile = uList.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+          const loggedEmail = user?.email?.toLowerCase();
+          const realProfile = loggedEmail ? uList.find(u => u.email?.toLowerCase() === loggedEmail) : null;
           if (realProfile && !realProfile.permisos?.gestionar_usuarios) return realProfile;
           if (!prev) return realProfile ?? uList.find(u => u.rol === 'Administrador') ?? uList[0] ?? defaultFallbackUser;
           return uList.find(u => u.id === prev.id) ?? realProfile ?? prev ?? defaultFallbackUser;
         });
       } else {
-        console.warn('[SCF] No se encontraron usuarios en Firestore, usando fallback');
         setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
       }
       if (sList.length > 0) setSupervisorLogs(sList);
       if (wList.length > 0) setWorkshopLogs(wList);
       setDataLoading(false);
     }).catch((err) => {
-      console.error('[SCF] Error en carga inicial:', err);
+      console.error('[SCF] Error al conectar con Firestore:', err);
       setDataLoading(false);
       setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
     });
@@ -211,13 +206,12 @@ export default function App() {
       }
     };
 
-    // Timeout de seguridad: asegura que la UI nunca se quede en carga infinita
     const timeoutId = setTimeout(() => {
       setDataLoading(false);
       setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
-    }, 4000);
+    }, 3000);
 
-    // 2. Suscripciones en tiempo real (onSnapshot) para sincronización continua
+    // 2. Suscripciones en tiempo real continuas
     const unsubVehicles = subscribeToVehicles(
       (data) => { if (data.length > 0) setVehicles(data); checkDone(); },
       () => { checkDone(); }
@@ -239,7 +233,8 @@ export default function App() {
         if (data && data.length > 0) {
           setUsers(data);
           setCurrentSimulatedUser(prev => {
-            const realProfile = data.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+            const loggedEmail = user?.email?.toLowerCase();
+            const realProfile = loggedEmail ? data.find(u => u.email?.toLowerCase() === loggedEmail) : null;
             if (realProfile && !realProfile.permisos?.gestionar_usuarios) {
               return realProfile;
             }

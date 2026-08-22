@@ -1,0 +1,43 @@
+// firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Vehicles
+    match /vehicles/{docId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+    // Maintenance logs
+    match /maintenanceLogs/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+    // Movement logs
+    match /movementLogs/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+    // Incidents
+    match /incidents/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+    // Users
+    match /users/{docId} {
+      // Users can read their own doc; admins can read all.
+      allow read: if request.auth != null && (
+        request.auth.uid == docId || request.auth.token.gestionar_usuarios == true
+      );
+      allow write: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+    // Supervisor logs
+    match /supervisorLogs/{docId} {
+      allow read, write: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+    // Workshop logs
+    match /workshopLogs/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.gestionar_usuarios == true;
+    }
+  }
+}

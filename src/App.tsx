@@ -166,6 +166,7 @@ export default function App() {
     };
 
     // 1. Carga inicial inmediata en paralelo (GetDocs) para poblar la UI al instante
+    console.log('[SCF] Iniciando carga de datos de Firestore...');
     Promise.all([
       getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
       getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
@@ -175,6 +176,7 @@ export default function App() {
       getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
       getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
     ]).then(([vList, mList, movList, incList, uList, sList, wList]) => {
+      console.log(`[SCF] Datos cargados: vehicles=${vList.length}, maintenance=${mList.length}, movements=${movList.length}, incidents=${incList.length}, users=${uList.length}, supervisors=${sList.length}, workshop=${wList.length}`);
       if (vList.length > 0) setVehicles(vList);
       if (mList.length > 0) setMaintenanceLogs(mList);
       if (movList.length > 0) setMovementLogs(movList);
@@ -188,13 +190,16 @@ export default function App() {
           return uList.find(u => u.id === prev.id) ?? realProfile ?? prev ?? defaultFallbackUser;
         });
       } else {
+        console.warn('[SCF] No se encontraron usuarios en Firestore, usando fallback');
         setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
       }
       if (sList.length > 0) setSupervisorLogs(sList);
       if (wList.length > 0) setWorkshopLogs(wList);
       setDataLoading(false);
     }).catch((err) => {
-      console.warn('Error en carga inicial rápida:', err);
+      console.error('[SCF] Error en carga inicial:', err);
+      setDataLoading(false);
+      setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
     });
 
     let resolved = 0;

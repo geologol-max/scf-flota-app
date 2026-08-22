@@ -160,23 +160,21 @@ export default function App() {
       },
     };
 
-    // 1. Carga inicial inmediata en paralelo (GetDocs)
-    console.log('[SCF] Conectando a Firestore...');
-    Promise.all([
-      getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
-      getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
-      getCollectionOnce<FleetMovementLog>(COLLECTIONS.MOVEMENTS),
-      getCollectionOnce<Incident>(COLLECTIONS.INCIDENTS),
-      getCollectionOnce<UserRole>(COLLECTIONS.USERS),
-      getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
-      getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
-    ]).then(([vList, mList, movList, incList, uList, sList, wList]) => {
-      console.log(`[SCF] Base de datos conectada: ${vList.length} vehículos, ${mList.length} mantenimientos, ${movList.length} movimientos, ${incList.length} incidentes, ${uList.length} usuarios, ${sList.length} supervisores, ${wList.length} taller.`);
-      if (vList.length > 0) setVehicles(vList);
-      if (mList.length > 0) setMaintenanceLogs(mList);
-      if (movList.length > 0) setMovementLogs(movList);
-      if (incList.length > 0) setIncidents(incList);
-      if (uList.length > 0) {
+    // 1. Carga inicial híbrida de ultra-alta disponibilidad (API Serverless + Firestore Directo)
+    const populateData = (
+      vList: Vehicle[],
+      mList: MaintenanceLog[],
+      movList: FleetMovementLog[],
+      incList: Incident[],
+      uList: UserRole[],
+      sList: SupervisorFleetLog[],
+      wList: WorkshopLog[]
+    ) => {
+      if (vList && vList.length > 0) setVehicles(vList);
+      if (mList && mList.length > 0) setMaintenanceLogs(mList);
+      if (movList && movList.length > 0) setMovementLogs(movList);
+      if (incList && incList.length > 0) setIncidents(incList);
+      if (uList && uList.length > 0) {
         setUsers(uList);
         setCurrentSimulatedUser(prev => {
           const loggedEmail = user?.email?.toLowerCase();
@@ -188,9 +186,37 @@ export default function App() {
       } else {
         setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
       }
-      if (sList.length > 0) setSupervisorLogs(sList);
-      if (wList.length > 0) setWorkshopLogs(wList);
+      if (sList && sList.length > 0) setSupervisorLogs(sList);
+      if (wList && wList.length > 0) setWorkshopLogs(wList);
       setDataLoading(false);
+    };
+
+    // A. Llamada rápida al API Serverless de sincronización
+    fetch('/api/sync-data')
+      .then(res => res.ok ? res.json() : null)
+      .then(resData => {
+        if (resData?.success && resData.data?.vehicles?.length > 0) {
+          const d = resData.data;
+          console.log(`[SCF] Sincronización serverless exitosa: ${d.vehicles.length} vehículos`);
+          populateData(d.vehicles, d.maintenanceLogs, d.movementLogs, d.incidents, d.users, d.supervisorLogs, d.workshopLogs);
+        }
+      })
+      .catch(() => {
+        // Fallback silently to Firestore SDK
+      });
+
+    // B. Consulta directa paralela a Firestore SDK
+    Promise.all([
+      getCollectionOnce<Vehicle>(COLLECTIONS.VEHICLES),
+      getCollectionOnce<MaintenanceLog>(COLLECTIONS.MAINTENANCE),
+      getCollectionOnce<FleetMovementLog>(COLLECTIONS.MOVEMENTS),
+      getCollectionOnce<Incident>(COLLECTIONS.INCIDENTS),
+      getCollectionOnce<UserRole>(COLLECTIONS.USERS),
+      getCollectionOnce<SupervisorFleetLog>(COLLECTIONS.SUPERVISOR_LOGS),
+      getCollectionOnce<WorkshopLog>(COLLECTIONS.WORKSHOP_LOGS),
+    ]).then(([vList, mList, movList, incList, uList, sList, wList]) => {
+      console.log(`[SCF] Base de datos conectada: ${vList.length} vehículos, ${mList.length} mantenimientos, ${movList.length} movimientos, ${incList.length} incidentes, ${uList.length} usuarios, ${sList.length} supervisores, ${wList.length} taller.`);
+      populateData(vList, mList, movList, incList, uList, sList, wList);
     }).catch((err) => {
       console.error('[SCF] Error al conectar con Firestore:', err);
       setDataLoading(false);

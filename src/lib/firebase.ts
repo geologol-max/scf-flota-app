@@ -5,7 +5,7 @@
  * Nunca hardcodear credenciales aquí.
  */
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -19,8 +19,17 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-/** Base de datos Firestore con conexión directa y sincronización en tiempo real */
-export const db = getFirestore(app);
+/** Base de datos Firestore con conexión directa y auto-detección de long polling */
+let firestoreInstance;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+  });
+} catch {
+  firestoreInstance = getFirestore(app);
+}
+
+export const db = firestoreInstance;
 
 /** Servicio de autenticación */
 export const auth = getAuth(app);

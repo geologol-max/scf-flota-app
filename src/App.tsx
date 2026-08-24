@@ -237,21 +237,45 @@ export default function App() {
       setCurrentSimulatedUser(prev => prev ?? defaultFallbackUser);
     }, 3000);
 
-    // 2. Suscripciones en tiempo real continuas
+    const safeMerge = <T extends { id?: string; ppu?: string }>(
+      prev: T[],
+      data: T[],
+      identityKey: 'id' | 'ppu'
+    ): T[] => {
+      if (!data || data.length === 0) return prev;
+      if (prev.length > data.length && data.length <= 5) {
+        const merged = [...prev];
+        data.forEach(item => {
+          const idx = merged.findIndex(old => {
+            if (identityKey === 'ppu') return old.ppu === item.ppu;
+            return old.id === item.id;
+          });
+          if (idx >= 0) {
+            merged[idx] = item;
+          } else {
+            merged.push(item);
+          }
+        });
+        return merged;
+      }
+      return data;
+    };
+
+    // 2. Suscripciones en tiempo real continuas con fusión segura para evitar pérdidas de datos locales
     const unsubVehicles = subscribeToVehicles(
-      (data) => { if (data.length > 0) setVehicles(data); checkDone(); },
+      (data) => { setVehicles(prev => safeMerge(prev, data, 'ppu')); checkDone(); },
       () => { checkDone(); }
     );
     const unsubMaint = subscribeToMaintenance(
-      (data) => { if (data.length > 0) setMaintenanceLogs(data); checkDone(); },
+      (data) => { setMaintenanceLogs(prev => safeMerge(prev, data, 'id')); checkDone(); },
       () => { checkDone(); }
     );
     const unsubMov = subscribeToMovements(
-      (data) => { if (data.length > 0) setMovementLogs(data); checkDone(); },
+      (data) => { setMovementLogs(prev => safeMerge(prev, data, 'id')); checkDone(); },
       () => { checkDone(); }
     );
     const unsubInc = subscribeToIncidents(
-      (data) => { if (data.length > 0) setIncidents(data); checkDone(); },
+      (data) => { setIncidents(prev => safeMerge(prev, data, 'id')); checkDone(); },
       () => { checkDone(); }
     );
     const unsubUsers = subscribeToUsers(
@@ -279,11 +303,11 @@ export default function App() {
       }
     );
     const unsubSup = subscribeToSupervisorLogs(
-      (data) => { if (data.length > 0) setSupervisorLogs(data); checkDone(); },
+      (data) => { setSupervisorLogs(prev => safeMerge(prev, data, 'id')); checkDone(); },
       () => { checkDone(); }
     );
     const unsubWorkshop = subscribeToWorkshopLogs(
-      (data) => { if (data.length > 0) setWorkshopLogs(data); checkDone(); },
+      (data) => { setWorkshopLogs(prev => safeMerge(prev, data, 'id')); checkDone(); },
       () => { checkDone(); }
     );
 
@@ -320,27 +344,46 @@ export default function App() {
   };
 
   // ─── Sincronización robusta con Firestore ────────────────────────────────────
+
+  // Handlers directos para vehículos (evitan cascade de escrituras y actualizan de forma optimista)
+  const handleAddVehicle = async (vehicle: Omit<Vehicle, 'id'>) => {
+    const newId = await addVehicle(vehicle);
+    setVehicles(prev => {
+      if (prev.some(v => v.ppu === vehicle.ppu)) return prev;
+      return [...prev, { ...vehicle, id: newId } as Vehicle];
+    });
+  };
+
+  const handleUpdateVehicleDirect = async (id: string, data: Partial<Vehicle>) => {
+    await updateVehicle(id, data);
+    setVehicles(prev => prev.map(v => (v as any).id === id ? { ...v, ...data } : v));
+  };
+
+  const handleDeleteVehicleDirect = async (id: string) => {
+    await deleteVehicle(id);
+    setVehicles(prev => prev.filter(v => (v as any).id !== id));
+  };
+
+  // handleUpdateVehicles: usado solo para actualizaciones de estado en tiempo real
+  // (cambio de contrato desde MovementsTab, cambio de estado desde IncidentsTab, etc.)
+  // NO se usa para agregar o eliminar vehículos desde el formulario.
   const handleUpdateVehicles = async (updated: Vehicle[]) => {
-    setVehicles(updated);
+    // Solo actualizar vehículos que realmente cambiaron (comparar campo por campo relevante)
     for (const newV of updated) {
       const oldV = vehicles.find(v => v.ppu === newV.ppu);
       if (oldV) {
-        if (JSON.stringify(oldV) !== JSON.stringify(newV)) {
+        // Solo campos relevantes para cambios de estado/contrato (NO velocidad ni coords)
+        const changed =
+          oldV.estado !== newV.estado ||
+          oldV.contrato !== newV.contrato ||
+          oldV.centro_costo !== newV.centro_costo ||
+          oldV.kilometraje !== newV.kilometraje;
+        if (changed) {
           const docId = (oldV as any).id;
           if (docId) {
-            const { id, ...dataToUpdate } = newV as any;
+            const { id, _createdAt, ...dataToUpdate } = newV as any;
             await updateVehicle(docId, dataToUpdate);
           }
-        }
-      } else {
-        await addVehicle(newV);
-      }
-    }
-    for (const oldV of vehicles) {
-      if (!updated.some(v => v.ppu === oldV.ppu)) {
-        const docId = (oldV as any).id;
-        if (docId) {
-          await deleteVehicle(docId);
         }
       }
     }
@@ -447,8 +490,36 @@ export default function App() {
     }
   };
 
+  const handleAddMaintenanceLog = async (newLog: Omit<MaintenanceLog, 'id'>) => {
+    const newId = await addMaintenanceLog(newLog);
+    setMaintenanceLogs(prev => {
+      if (prev.some(log => log.id === newId)) return prev;
+      return [{ ...newLog, id: newId } as MaintenanceLog, ...prev];
+    });
+  };
+
+  const handleAddMovementLog = async (newLog: Omit<FleetMovementLog, 'id'>) => {
+    const newId = await addMovementLog(newLog);
+    setMovementLogs(prev => {
+      if (prev.some(m => m.id === newId)) return prev;
+      return [{ ...newLog, id: newId } as FleetMovementLog, ...prev];
+    });
+  };
+
+  const handleAddIncident = async (newIncident: Omit<Incident, 'id'>) => {
+    const newId = await addIncident(newIncident);
+    setIncidents(prev => {
+      if (prev.some(i => i.id === newId)) return prev;
+      return [{ ...newIncident, id: newId } as Incident, ...prev];
+    });
+  };
+
   const handleAddSupervisorLog = async (newLog: Omit<SupervisorFleetLog, 'id'>) => {
-    await addSupervisorLog(newLog);
+    const newId = await addSupervisorLog(newLog);
+    setSupervisorLogs(prev => {
+      if (prev.some(log => log.id === newId)) return prev;
+      return [{ ...newLog, id: newId } as SupervisorFleetLog, ...prev];
+    });
   };
 
   const handleUpdateSupervisorLogs = async (updated: SupervisorFleetLog[]) => {
@@ -479,7 +550,11 @@ export default function App() {
   };
 
   const handleAddWorkshopLog = async (newLog: Omit<WorkshopLog, 'id'>) => {
-    await addWorkshopLog(newLog);
+    const newId = await addWorkshopLog(newLog);
+    setWorkshopLogs(prev => {
+      if (prev.some(log => log.id === newId)) return prev;
+      return [{ ...newLog, id: newId } as WorkshopLog, ...prev];
+    });
   };
 
   const handleUpdateWorkshopLogs = async (updated: WorkshopLog[]) => {
@@ -1273,6 +1348,9 @@ export default function App() {
               <VehicleInventory
                 vehicles={vehicles}
                 onUpdateVehicles={handleUpdateVehicles}
+                onAddVehicle={handleAddVehicle}
+                onUpdateVehicle={handleUpdateVehicleDirect}
+                onDeleteVehicle={handleDeleteVehicleDirect}
                 permissions={currentSimulatedUser.permisos}
                 customCategories={customCategories}
                 onCreateCategory={(newCat) => setCustomCategories([...customCategories, newCat])}
@@ -1290,6 +1368,7 @@ export default function App() {
                   logs={maintenanceLogs}
                   vehicles={vehicles}
                   onUpdateLogs={handleUpdateMaintenanceLogs}
+                  onAddLog={handleAddMaintenanceLog}
                   permissions={currentSimulatedUser.permisos}
                   currentUserRole={currentSimulatedUser.rol}
                 />
@@ -1333,6 +1412,7 @@ export default function App() {
                   movements={movementLogs}
                   vehicles={vehicles}
                   onUpdateMovements={handleUpdateMovements}
+                  onAddMovement={handleAddMovementLog}
                   onUpdateVehicles={handleUpdateVehicles}
                   permissions={currentSimulatedUser.permisos}
                   currentSimulatedAdminUser={currentSimulatedUser.nombre}
@@ -1348,6 +1428,7 @@ export default function App() {
                   incidents={incidents}
                   vehicles={vehicles}
                   onUpdateIncidents={handleUpdateIncidents}
+                  onAddIncident={handleAddIncident}
                   onUpdateVehicles={handleUpdateVehicles}
                   permissions={currentSimulatedUser.permisos}
                   currentUserRole={currentSimulatedUser.rol}

@@ -7,11 +7,12 @@ interface MaintenanceTabProps {
   logs: MaintenanceLog[];
   vehicles: Vehicle[];
   onUpdateLogs: (newLogs: MaintenanceLog[]) => void;
+  onAddLog: (log: Omit<MaintenanceLog, 'id'>) => Promise<void>;
   permissions: UserPermissions;
   currentUserRole: string;
 }
 
-export default function MaintenanceTab({ logs, vehicles, onUpdateLogs, permissions, currentUserRole }: MaintenanceTabProps) {
+export default function MaintenanceTab({ logs, vehicles, onUpdateLogs, onAddLog, permissions, currentUserRole }: MaintenanceTabProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingLog, setEditingLog] = useState<MaintenanceLog | null>(null);
@@ -53,7 +54,7 @@ export default function MaintenanceTab({ logs, vehicles, onUpdateLogs, permissio
     }
   };
 
-  const handleAddLog = (e: React.FormEvent) => {
+  const handleAddLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!permissions.editar_flota) {
       alert('Nivel de permisos insuficiente para añadir registros a la bitácora.');
@@ -95,8 +96,7 @@ export default function MaintenanceTab({ logs, vehicles, onUpdateLogs, permissio
       onUpdateLogs(updatedLogs);
       setEditingLog(null);
     } else {
-      const nextLog: MaintenanceLog = {
-        id: `MNT-${Math.floor(Math.random() * 9000 + 1000)}`,
+      const newLog: Omit<MaintenanceLog, 'id'> = {
         codigo_vehiculo: veh.codigo_unico,
         ppu: veh.ppu,
         fecha: date,
@@ -109,7 +109,7 @@ export default function MaintenanceTab({ logs, vehicles, onUpdateLogs, permissio
         centro_costo: veh.centro_costo,
         responsable: responsible.trim() || 'Administrador de Flota'
       };
-      onUpdateLogs([nextLog, ...logs]);
+      await onAddLog(newLog);
     }
 
     setIsAdding(false);

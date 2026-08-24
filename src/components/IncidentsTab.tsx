@@ -6,6 +6,7 @@ interface IncidentsTabProps {
   incidents: Incident[];
   vehicles: Vehicle[];
   onUpdateIncidents: (newIncidents: Incident[]) => void;
+  onAddIncident: (incident: Omit<Incident, 'id'>) => Promise<void>;
   onUpdateVehicles: (updatedVehicles: Vehicle[]) => void;
   permissions: UserPermissions;
   currentUserRole: string;
@@ -15,6 +16,7 @@ export default function IncidentsTab({
   incidents,
   vehicles,
   onUpdateIncidents,
+  onAddIncident,
   onUpdateVehicles,
   permissions,
   currentUserRole
@@ -52,7 +54,7 @@ export default function IncidentsTab({
     }
   };
 
-  const handleRegisterIncident = (e: React.FormEvent) => {
+  const handleRegisterIncident = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!permissions.incidentes_siniestros) {
       alert('Nivel de acceso insuficiente para registrar reportes de incidentes viales.');
@@ -89,9 +91,8 @@ export default function IncidentsTab({
       onUpdateIncidents(updatedIncidents);
       setEditingIncident(null);
     } else {
-      // Create log
-      const nextInc: Incident = {
-        id: `INC-${Math.floor(Math.random() * 9000 + 1000)}`,
+      // Create incident directly in Firestore (no temp ID)
+      const newInc: Omit<Incident, 'id'> = {
         codigo_vehiculo: veh.codigo_unico,
         ppu: veh.ppu,
         fecha: new Date().toISOString().slice(0, 10),
@@ -102,7 +103,7 @@ export default function IncidentsTab({
         estado_resolucion: 'Pendiente',
         comentario_seguro: insuranceComments
       };
-      onUpdateIncidents([nextInc, ...incidents]);
+      await onAddIncident(newInc);
     }
 
     // Auto-update vehicle operational state to 'Siniestrado' if incident is Grave or Moderada

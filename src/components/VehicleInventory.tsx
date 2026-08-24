@@ -8,6 +8,9 @@ import { exportToExcel, triggerPDFPrint } from '../utils/exporters';
 interface VehicleInventoryProps {
   vehicles: Vehicle[];
   onUpdateVehicles: (v: Vehicle[]) => void;
+  onAddVehicle: (vehicle: Omit<Vehicle, 'id'>) => Promise<void>;
+  onUpdateVehicle: (id: string, data: Partial<Vehicle>) => Promise<void>;
+  onDeleteVehicle: (id: string) => Promise<void>;
   permissions: UserPermissions;
   customCategories: string[];
   onCreateCategory: (cat: string) => void;
@@ -20,6 +23,9 @@ interface VehicleInventoryProps {
 export default function VehicleInventory({
   vehicles,
   onUpdateVehicles,
+  onAddVehicle,
+  onUpdateVehicle,
+  onDeleteVehicle,
   permissions,
   customCategories,
   onCreateCategory,
@@ -110,7 +116,7 @@ export default function VehicleInventory({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!permissions.editar_flota) {
       alert('Su nivel de acceso no permite realizar modificaciones a la flota.');
@@ -154,7 +160,7 @@ export default function VehicleInventory({
       savedDocState.emision_gases.fecha_vencimiento = gasesDate;
     }
 
-    const newVehicle: Vehicle = {
+    const vehicleData: Omit<Vehicle, 'id'> = {
       codigo_unico: code,
       ppu: sanitizedPpu,
       marca: brand,
@@ -177,9 +183,17 @@ export default function VehicleInventory({
     };
 
     if (editingVehicle) {
-      onUpdateVehicles(vehicles.map(v => v.ppu === editingVehicle.ppu ? newVehicle : v));
+      // Update existing vehicle directly in Firestore
+      const docId = (editingVehicle as any).id;
+      if (docId) {
+        await onUpdateVehicle(docId, vehicleData);
+      } else {
+        // Fallback for vehicles without Firestore ID
+        onUpdateVehicles(vehicles.map(v => v.ppu === editingVehicle.ppu ? { ...vehicleData, id: (v as any).id } as any : v));
+      }
     } else {
-      onUpdateVehicles([...vehicles, newVehicle]);
+      // Add new vehicle directly to Firestore (no temp ID)
+      await onAddVehicle(vehicleData);
     }
 
     setIsAdding(false);
@@ -215,13 +229,20 @@ export default function VehicleInventory({
     setIsAdding(true);
   };
 
-  const handleDelete = (ppuToDelete: string) => {
+  const handleDelete = async (ppuToDelete: string) => {
     if (currentUserRole !== 'Administrador') {
       alert('Permisos insuficientes: Solo el administrador puede eliminar vehículos.');
       return;
     }
     if (confirm('¿Está seguro de eliminar este vehículo de la flota activa? Se perderán sus bitácoras documentales asociadas.')) {
-      onUpdateVehicles(vehicles.filter(v => v.ppu !== ppuToDelete));
+      const vehicleToDelete = vehicles.find(v => v.ppu === ppuToDelete);
+      const docId = vehicleToDelete ? (vehicleToDelete as any).id : null;
+      if (docId) {
+        await onDeleteVehicle(docId);
+      } else {
+        // Fallback for vehicles without Firestore ID
+        onUpdateVehicles(vehicles.filter(v => v.ppu !== ppuToDelete));
+      }
     }
   };
 

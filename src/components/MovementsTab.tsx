@@ -7,6 +7,7 @@ interface MovementsTabProps {
   movements: FleetMovementLog[];
   vehicles: Vehicle[];
   onUpdateMovements: (newMoves: FleetMovementLog[]) => void;
+  onAddMovement: (log: Omit<FleetMovementLog, 'id'>) => Promise<void>;
   onUpdateVehicles: (updatedVehicles: Vehicle[]) => void;
   permissions: UserPermissions;
   currentSimulatedAdminUser: string;
@@ -17,6 +18,7 @@ export default function MovementsTab({
   movements,
   vehicles,
   onUpdateMovements,
+  onAddMovement,
   onUpdateVehicles,
   permissions,
   currentSimulatedAdminUser,
@@ -51,7 +53,7 @@ export default function MovementsTab({
     }
   };
 
-  const handleLogMovement = (e: React.FormEvent) => {
+  const handleLogMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!permissions.movimientos_flota) {
       alert('Nivel de permisos insuficiente para registrar movimientos de flota.');
@@ -90,9 +92,8 @@ export default function MovementsTab({
       onUpdateMovements(updatedMoves);
       setEditingMove(null);
     } else {
-      // Create the log
-      const nextMove: FleetMovementLog = {
-        id: `MOV-${Math.floor(Math.random() * 9000 + 1000)}`,
+      // Create the log directly in Firestore (no temp ID)
+      const newMove: Omit<FleetMovementLog, 'id'> = {
         codigo_vehiculo: veh.codigo_unico,
         ppu: veh.ppu,
         fecha: new Date().toISOString().slice(0, 10),
@@ -102,7 +103,7 @@ export default function MovementsTab({
         comentario: comments,
         operador: currentSimulatedAdminUser || 'Administrador Central'
       };
-      onUpdateMovements([nextMove, ...movements]);
+      await onAddMovement(newMove);
     }
 
     // Update the actual vehicle contract field & cost center dynamically in real-time!

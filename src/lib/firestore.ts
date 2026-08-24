@@ -74,28 +74,37 @@ export function subscribeToCollection<T>(
   );
 }
 
+
+// Helper para realizar llamadas de escritura al API Serverless
+async function callWriteApi(action: 'add' | 'update' | 'delete', collection: string, id?: string, data?: any): Promise<any> {
+  const res = await fetch('/api/write-data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, collection, id, data })
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || 'HTTP error ' + res.status);
+  }
+  return res.json();
+}
+
 // ─── VEHICLES ──────────────────────────────────────────────────────────────────
 export function subscribeToVehicles(cb: (v: Vehicle[]) => void, onError?: (err: any) => void): Unsubscribe {
   return subscribeToCollection<Vehicle>(COLLECTIONS.VEHICLES, cb, onError);
 }
 
 export async function addVehicle(vehicle: Omit<Vehicle, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.VEHICLES), {
-    ...vehicle,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.VEHICLES, undefined, vehicle);
+  return res.id;
 }
 
 export async function updateVehicle(id: string, data: Partial<Vehicle>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.VEHICLES, id), {
-    ...data,
-    _updatedAt: serverTimestamp(),
-  });
+  await callWriteApi('update', COLLECTIONS.VEHICLES, id, data);
 }
 
 export async function deleteVehicle(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.VEHICLES, id));
+  await callWriteApi('delete', COLLECTIONS.VEHICLES, id);
 }
 
 // ─── MAINTENANCE LOGS ──────────────────────────────────────────────────────────
@@ -104,19 +113,16 @@ export function subscribeToMaintenance(cb: (logs: MaintenanceLog[]) => void, onE
 }
 
 export async function addMaintenanceLog(log: Omit<MaintenanceLog, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.MAINTENANCE), {
-    ...log,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.MAINTENANCE, undefined, log);
+  return res.id;
 }
 
 export async function updateMaintenanceLog(id: string, data: Partial<MaintenanceLog>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.MAINTENANCE, id), data);
+  await callWriteApi('update', COLLECTIONS.MAINTENANCE, id, data);
 }
 
 export async function deleteMaintenanceLog(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.MAINTENANCE, id));
+  await callWriteApi('delete', COLLECTIONS.MAINTENANCE, id);
 }
 
 // ─── MOVEMENT LOGS ─────────────────────────────────────────────────────────────
@@ -125,15 +131,12 @@ export function subscribeToMovements(cb: (logs: FleetMovementLog[]) => void, onE
 }
 
 export async function addMovementLog(log: Omit<FleetMovementLog, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.MOVEMENTS), {
-    ...log,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.MOVEMENTS, undefined, log);
+  return res.id;
 }
 
 export async function updateMovementLog(id: string, data: Partial<FleetMovementLog>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.MOVEMENTS, id), data);
+  await callWriteApi('update', COLLECTIONS.MOVEMENTS, id, data);
 }
 
 // ─── INCIDENTS ─────────────────────────────────────────────────────────────────
@@ -142,15 +145,12 @@ export function subscribeToIncidents(cb: (incidents: Incident[]) => void, onErro
 }
 
 export async function addIncident(incident: Omit<Incident, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.INCIDENTS), {
-    ...incident,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.INCIDENTS, undefined, incident);
+  return res.id;
 }
 
 export async function updateIncident(id: string, data: Partial<Incident>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.INCIDENTS, id), data);
+  await callWriteApi('update', COLLECTIONS.INCIDENTS, id, data);
 }
 
 // ─── USERS ─────────────────────────────────────────────────────────────────────
@@ -159,19 +159,16 @@ export function subscribeToUsers(cb: (users: UserRole[]) => void, onError?: (err
 }
 
 export async function addUser(user: Omit<UserRole, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.USERS), {
-    ...user,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.USERS, undefined, user);
+  return res.id;
 }
 
 export async function updateUser(id: string, data: Partial<UserRole>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.USERS, id), data);
+  await callWriteApi('update', COLLECTIONS.USERS, id, data);
 }
 
 export async function deleteUser(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.USERS, id));
+  await callWriteApi('delete', COLLECTIONS.USERS, id);
 }
 
 // ─── SUPERVISOR LOGS ───────────────────────────────────────────────────────────
@@ -180,15 +177,12 @@ export function subscribeToSupervisorLogs(cb: (logs: SupervisorFleetLog[]) => vo
 }
 
 export async function addSupervisorLog(log: Omit<SupervisorFleetLog, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.SUPERVISOR_LOGS), {
-    ...log,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.SUPERVISOR_LOGS, undefined, log);
+  return res.id;
 }
 
 export async function updateSupervisorLog(id: string, data: Partial<SupervisorFleetLog>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.SUPERVISOR_LOGS, id), data);
+  await callWriteApi('update', COLLECTIONS.SUPERVISOR_LOGS, id, data);
 }
 
 // ─── WORKSHOP LOGS ─────────────────────────────────────────────────────────────
@@ -197,30 +191,27 @@ export function subscribeToWorkshopLogs(cb: (logs: WorkshopLog[]) => void, onErr
 }
 
 export async function addWorkshopLog(log: Omit<WorkshopLog, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, COLLECTIONS.WORKSHOP_LOGS), {
-    ...log,
-    _createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  const res = await callWriteApi('add', COLLECTIONS.WORKSHOP_LOGS, undefined, log);
+  return res.id;
 }
 
 export async function updateWorkshopLog(id: string, data: Partial<WorkshopLog>): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.WORKSHOP_LOGS, id), data);
+  await callWriteApi('update', COLLECTIONS.WORKSHOP_LOGS, id, data);
 }
 
 export async function deleteMovementLog(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.MOVEMENTS, id));
+  await callWriteApi('delete', COLLECTIONS.MOVEMENTS, id);
 }
 
 export async function deleteIncident(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.INCIDENTS, id));
+  await callWriteApi('delete', COLLECTIONS.INCIDENTS, id);
 }
 
 export async function deleteSupervisorLog(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.SUPERVISOR_LOGS, id));
+  await callWriteApi('delete', COLLECTIONS.SUPERVISOR_LOGS, id);
 }
 
 export async function deleteWorkshopLog(id: string): Promise<void> {
-  await deleteDoc(doc(db, COLLECTIONS.WORKSHOP_LOGS, id));
+  await callWriteApi('delete', COLLECTIONS.WORKSHOP_LOGS, id);
 }
 
